@@ -1,0 +1,11 @@
+Chave,Valor,Descricao
+NOME_CLINICA,,Nome oficial da clínica para ser usado pelos agentes
+ENDERECO,,Endereço completo (com ponto de referência) para enviar aos pacientes
+TELEFONE_CONTATO,,Telefone para falar com um humano caso o agente não consiga resolver
+HORARIO_FUNCIONAMENTO,,Horários de abertura e fechamento (ex: Seg-Sex 08:00-18:00; Sáb 08:00-12:00)
+POLITICA_CANCELAMENTO,,Regras para cancelar/remarcar (ex: mínimo 24h de antecedência)
+TOM_DE_VOZ,,Como o bot deve falar (ex: Amigável mas profissional usar no máximo um emoji por mensagem)
+TEMPO_MINIMO_AGENDAMENTO,,Quantas horas de antecedência mínima para agendar (ex: 24h)
+PIX_CHAVE,,Chave PIX para envio quando houver necessidade de sinal financeiro
+LINK_INSTAGRAM,,Link do Instagram da clínica para divulgação ou info
+MENSAGEM_SAUDACAO_NOVO_PACIENTE,,Mensagem fixa para o primeiro contato (opcional)

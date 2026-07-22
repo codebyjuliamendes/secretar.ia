@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/marketing/upsell",
+      "schedule": "0 9 * * *"
+    }
+  ],
+  "framework": "nextjs"
+}

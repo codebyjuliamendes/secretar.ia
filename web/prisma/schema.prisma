@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Tenant {
+  id            String        @id @default(cuid())
+  name          String
+  whatsapp      String        @unique
+  prompt        String
+  prices        String?       
+  businessHours String?      
+  subscriptionId String?      // ID da assinatura Stripe/Asaas
+  status        String        @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  patients      Patient[]
+  appointments  Appointment[]
+}
+
+model Patient {
+  id           String        @id @default(cuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  phone        String
+  name         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  appointments Appointment[]
+
+  @@unique([tenantId, phone])
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  service     String
+  date        DateTime
+  status      String   @default("PENDENTE") 
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  tenantId  String
+  level     String   @default("INFO")
+  message   String
+  createdAt DateTime @default(now())
+}
