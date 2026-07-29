@@ -1,83 +1,79 @@
 # 🤖 Secretar.ia — AI-Powered Multi-Tenant SaaS for High-Ticket Clinics
 
-**Secretar.ia** é uma solução de inteligência artificial de nível corporativo e arquitetura multi-tenant, projetada especificamente para automatizar a recepção, agendamento, atendimento e retenção de pacientes em clínicas de estética e saúde de alto padrão (*high-ticket*). 
+**Secretar.ia** é uma plataforma SaaS empresarial de inteligência artificial voltada para clínicas de saúde e estética de alto padrão (*high-ticket*). O sistema gerencia de forma 100% autônoma a captação, o agendamento de consultas e a retenção ativa de clientes diretamente via WhatsApp.
 
-A plataforma resolve o acoplamento entre "crescimento de receita" e "trabalho operacional", permitindo que as clínicas escalem seus atendimentos via WhatsApp com zero intervenção humana inicial.
+Desenhada sob o conceito de **Zero-Touch Onboarding**, a plataforma permite que as clínicas se cadastrem, realizem o login social via Google (para integração do Calendar com OAuth2) e conectem seus números de WhatsApp via QR Code de forma self-service, eliminando gargalos de suporte técnico e garantindo escalabilidade linear para o modelo de negócios.
 
 ---
 
-## 📐 Visão Arquitetural da Plataforma
+## 📐 Visão Geral da Arquitetura
 
-O sistema foi desenhado seguindo padrões modernos de microsserviços e divisão de responsabilidades, garantindo segurança de dados, isolamento entre clínicas e altíssima performance para processamento de inteligência artificial.
+O sistema é baseado em microsserviços integrados, acoplados a um banco de dados relacional robusto com isolamento de dados por inquilino (`tenantId`).
 
 ```mermaid
 graph TD
-    Patient([Paciente no WhatsApp]) -->|WhatsApp Integration| Evolution[Evolution API Gateway]
-    Evolution -->|Webhook Events| N8n[n8n Automation Engine]
+    Patient([Paciente no WhatsApp]) -->|Eventos de Mensagem| Evolution[Evolution API Gateway]
+    Evolution -->|Webhook Seguro| Python[FastAPI Backend - Python 3.12]
     
-    subgraph "IA & Camada Cognitiva"
-        N8n -->|Whisper API| Transcription[Transcrição e Análise de Áudio]
-        N8n -->|Gemini 1.5 Pro| Vision[Visão Computacional e Skin Assessment]
+    subgraph "Camada de Inteligência e Armazenamento"
+        Python -->|Queries Seguras| Postgres[(PostgreSQL / Multi-Tenant DB)]
+        Python -->|Busca Semântica| Vector[pgvector - RAG de Procedimentos]
+        Python -->|Prompt Caching| Gemini[Google Gemini 1.5 Pro - IA Core]
+        Python -->|Transcrição de Áudio| Whisper[OpenAI Whisper API]
     end
 
-    N8n -->|Processamento de Regra de Negócio| Python[FastAPI Backend - Python 3.12]
-    Python -->|Queries Seguras| Postgres[(PostgreSQL / Multi-Tenant DB)]
-    
-    subgraph "Interface do Usuário (Next.js)"
-        Next[Next.js App Router] -->|Consome REST API| Python
-        Admin[SuperAdmin Panel]
-        Clinic[Clinic Workspace & Realtime Inbox]
+    subgraph "Painéis Administrativos (Next.js 15)"
+        Next[Next.js App Router] -->|API REST| Python
+        Admin[SuperAdmin Panel - Faturamento Master]
+        Clinic[Clinic Workspace - Analytics & Inbox Realtime]
     end
+    
+    Python -->|Mensagens de Saída| Evolution
 ```
 
 ---
 
-## ⚙️ Decisões Críticas de Projeto (Architectural Decision Records)
+## 💎 Pilares do Produto (SaaS Enterprise)
 
-Para garantir que a plataforma pudesse escalar de forma robusta e comercial para centenas de clínicas simultâneas, tomamos decisões de engenharia específicas afastando-nos de abordagens "no-code/low-code" genéricas:
+### 1. Inteligência Conversacional & Performance
+*   **Prompt Caching**: Otimização avançada de tokens que mantém as regras de funcionamento e tabela de preços da clínica em cache na API do LLM, gerando respostas em menos de 2 segundos e reduzindo custos operacionais em até 80%.
+*   **RAG de Alta Fidelidade (pgvector)**: Busca semântica local no PostgreSQL para entregar descrições precisas de tratamentos, restrições e preços da clínica sem sobrecarregar o prompt principal da IA.
+*   **Recepção Multimodal**: Leitura autônoma de mensagens de áudio (Whisper) e avaliação inteligente de fotos da pele enviadas por pacientes (Gemini Vision) para pré-avaliar a necessidade de tratamentos estéticos.
 
-### 1. Desacoplamento do n8n no Core do Backend (Código vs. Fluxos Visuais)
-*   **O Problema**: Utilizar o n8n ou ferramentas visuais para gerenciar toda a lógica de banco de dados, regras de negócio complexas e rotinas de faturamento cria gargalos. Fluxos visuais são difíceis de testar unitariamente, carecem de tipagem forte e dificultam o controle de versão e CI/CD.
-*   **A Solução**: O n8n foi limitado estritamente a atuar como um **disparador de eventos (Event Dispatcher)** e ponte para as APIs de IA (Whisper/Gemini). Toda a lógica transacional, validação de regras de negócio, persistência de dados e controle de assinaturas foram migrados para o **FastAPI (Python)**. Isso garante código testável, tipado com Pydantic, versionado em Git e integrado a pipelines automatizados de CI/CD.
+### 2. Retorno Financeiro Comprovado (ROI Dashboard)
+*   **Visualização de Lucro Recuperado**: O painel das clínicas exibe de forma clara e objetiva o faturamento estimado recuperado pelo robô (agendamentos de pacientes reativados) versus o custo de assinatura do SaaS.
+*   **Máquina de Upsell Ativa (Cron Preditivo)**: Motor em lote que monitora o tempo de vencimento de tratamentos periódicos (como Toxina Botulínica após 5 meses) e reengaja a paciente no WhatsApp sugerindo um horário de retorno de forma amigável.
 
-### 2. Abstração de Banco com Prisma vs. Supabase (Evitando Vendor Lock-in)
-*   **O Problema**: Plataformas Backend-as-a-Service (BaaS) como o Supabase aceleram o desenvolvimento inicial, mas criam um acoplamento forte com sua infraestrutura proprietária, encarecendo a escala e dificultando migrações futuras.
-*   **A Solução**: Optamos por uma arquitetura agnóstica de banco de dados utilizando o **Prisma ORM** sobre PostgreSQL/MySQL nativos. Isso garante:
-    *   **Portabilidade Total**: O sistema pode ser hospedado em qualquer nuvem (AWS RDS, Neon, Railway ou servidores locais Dedicados) apenas mudando a string de conexão.
-    *   **Isolamento de Conexões**: Controle granular sobre pools de conexões e políticas de segurança, sem depender de middleware proprietário.
-    *   **Tipagem Nativa**: Modelagem isolada que gera tipos estáticos direto para o Python, reduzindo erros em tempo de execução.
+### 3. Onboarding Self-Service Autônomo
+*   **Integração Google Calendar (OAuth2)**: A própria clínica autoriza e sincroniza suas agendas do Google Workspace com a plataforma em um clique.
+*   **Emparelhamento de WhatsApp (QR Code)**: Conexão via painel escaneando o QR Code dinâmico da Evolution API, permitindo ativação instantânea do chatbot.
 
----
-
-## 💎 Pilares de Valor & Engenharia do SaaS
-
-### 1. Arquitetura Multi-Tenant & Isolamento
-*   **Isolamento Logístico**: Banco de dados relacional com políticas de isolamento estritas por ID da clínica (`tenantId`), permitindo escalar para centenas de clientes sob o mesmo banco sem vazamento de dados.
-*   **Conexões Independentes**: Arquitetura pronta para integração do próprio calendário do médico (Google Calendar via OAuth2) e número de WhatsApp independente por clínica.
-
-### 2. Camada de Agentes de IA Inteligentes
-*   **Recepção Multimodal Ativa**:
-    *   *Transcrição de Áudio (Whisper)*: O assistente de IA lê, transcreve e entende as intenções enviadas por mensagens de voz.
-    *   *Visão Computacional (Gemini)*: Reconhece fotos de rosto enviadas por pacientes para pré-avaliar a pele e sugerir os procedimentos mais adequados com tato comercial.
-*   **Agente de Retenção Ativa (Upsell)**:
-    *   Processador em lote (CRON) que identifica procedimentos que perdem o efeito (como a Toxina Botulínica após 5 meses) e reengaja ativamente a paciente via WhatsApp para agendar o retoque.
-
-### 3. Painel Administrativo Self-Service
-*   **Visão de Negócios**: Gráficos de faturamento recuperado pela IA, taxas de conversão de agendamentos e métricas críticas de no-show.
-*   **Inbox de Transbordo Realtime**: Painel com alertas automatizados de handoff. Quando a IA encontra uma dúvida complexa (intenção `HUMANO`), o sistema notifica a recepcionista física instantaneamente para assumir a conversa pelo chat integrado.
+### 4. Robustez e Resiliência Técnica
+*   **Idempotência de Webhooks**: Sistema que valida e registra identificadores únicos de mensagens, descartando qualquer webhook duplicado enviado pela Meta e evitando envios repetidos para o paciente.
+*   **Fila Assíncrona com Backoff Exponencial**: Gerenciador de fila persistido no PostgreSQL que reprocessa falhas de API externas automaticamente, dobrando o tempo de espera a cada tentativa (ex: rate limits do WhatsApp ou quedas do Google Calendar).
+*   **Validação Criptográfica**: Checagem SHA-256 HMAC das requisições recebidas da Meta para garantir a autenticidade e segurança de ponta a ponta.
 
 ---
 
-## 💻 Stack Tecnológica de Destaque
+## 💻 Stack Tecnológica
 
-*   **Frontend**: Next.js 15 (App Router), React 19, Tailwind CSS 4, Shadcn/UI (Design System premium baseado em Glassmorphism e Dark Mode).
-*   **Backend**: Python 3.12, FastAPI (Assíncrono com Uvicorn).
-*   **Persistência**: Prisma Client Python (`prisma-client-py`) com suporte nativo a migrações e modelagem em PostgreSQL e MySQL.
-*   **Orquestração**: N8n Workflow Engine.
-*   **Infraestrutura**: Docker Compose para orquestração de serviços de banco de dados e pipelines locais.
+*   **Painéis Web**: Next.js 15, React 19, Tailwind CSS 4, Shadcn/UI (Design moderno com Glassmorphism, Dark Mode e animações fluidas).
+*   **Backend Core**: Python 3.12, FastAPI (Assíncrono com Uvicorn).
+*   **Banco de Dados & ORM**: PostgreSQL, Prisma Client Python (`prisma-client-py`) com injeção de dependência e suporte a driver adapters de alto desempenho.
+*   **Automação de Eventos**: Evolution API Gateway.
 
 ---
 
-## 📄 Licença
+## 📂 Estrutura do Repositório
 
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+```
+secretar.ia/
+├── backend/            # API FastAPI em Python
+│   ├── core/           # Motores Críticos (Idempotência, Fila, Segurança, Roteador)
+│   ├── routes/         # Endpoints de Negócio (Admin, Clinic, Webhook, Cron)
+│   ├── prisma/         # Prisma Schema (Banco PostgreSQL)
+│   └── generated_prisma/ # Cliente Python Autogerado do Prisma
+├── web/                # Frontend Next.js 15 (Tailwind Glassmorphism)
+│   ├── src/app/        # Páginas do Painel Admin e Clinic Workspace
+└── docker-compose.yml  # Orquestração do banco Postgres + MySQL + N8n
+```
