@@ -9,12 +9,18 @@ from prisma import Prisma
 load_dotenv()
 
 from db import db
+from core.queue import worker_loop
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Conecta no banco ao iniciar
     await db.connect()
+    # Inicia o worker de fila em background
+    app.state.worker_task = asyncio.create_task(worker_loop())
     yield
+    # Finaliza o worker
+    app.state.worker_task.cancel()
     # Desconecta ao finalizar
     if db.is_connected():
         await db.disconnect()
