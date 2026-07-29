@@ -13,23 +13,16 @@ class ClinicConfigUpdate(BaseModel):
 @router.get("/dashboard")
 async def get_clinic_dashboard(tenantId: str):
     try:
-        tenant = await db.tenant.find_unique(
-            where={"id": tenantId},
-            include={
-                "appointments": {
-                    "include": {
-                        "patient": True
-                    },
-                    "take": 5
-                    # Ordenação pode ser feita em Python se não for suportada de forma simples
-                },
-                "patients": True
-            }
-        )
-        if not tenant:
+        # Verifica se o tenant existe de forma rápida
+        tenant_exists = await db.tenant.find_unique(where={"id": tenantId})
+        if not tenant_exists:
             raise HTTPException(status_code=404, detail="Clinic not found")
 
-        # Conta alertas humanos/handoffs
+        # Contagens performáticas via COUNT no Postgres, utilizando índices criados
+        patient_count = await db.patient.count(where={"tenantId": tenantId})
+        appointment_count = await db.appointment.count(where={"tenantId": tenantId})
+
+        # Conta alertas de transbordo humano (otimizado por index)
         human_logs = await db.log.count(
             where={
                 "tenantId": tenantId,
@@ -37,15 +30,20 @@ async def get_clinic_dashboard(tenantId: str):
             }
         )
 
-        # Ordena em Python (mais recente primeiro)
-        sorted_appointments = sorted(
-            tenant.appointments or [], 
-            key=lambda x: x.createdAt, 
-            reverse=True
-        )[:5]
+        # Busca apenas os 5 agendamentos mais recentes ordenados diretamente pelo banco
+        recent_apps = await db.appointment.find_many(
+            where={"tenantId": tenantId},
+            include={
+                "patient": True
+            },
+            order={
+                "createdAt": "desc"
+            },
+            take=5
+        )
 
         recent_appointments = []
-        for app in sorted_appointments:
+        for app in recent_apps:
             recent_appointments.append({
                 "id": app.id,
                 "patientName": app.patient.name if app.patient and app.patient.name else "Paciente",
@@ -57,8 +55,8 @@ async def get_clinic_dashboard(tenantId: str):
         return {
             "success": True,
             "metrics": {
-                "patientCount": len(tenant.patients) if tenant.patients else 0,
-                "appointmentCount": len(tenant.appointments) if tenant.appointments else 0,
+                "patientCount": patient_count,
+                "appointmentCount": appointment_count,
                 "humanHandoffs": human_logs
             },
             "recentAppointments": recent_appointments

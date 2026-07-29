@@ -49,6 +49,9 @@ model Appointment {
   status      String   @default("PENDENTE") 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([date, status])
 }
 
 model Log {
@@ -58,6 +61,8 @@ model Log {
   level     String   @default("INFO")
   message   String
   createdAt DateTime @default(now())
+
+  @@index([tenantId, level])
 }
 
 // -------------------------------------------------------------
@@ -92,6 +97,8 @@ model ExecutionLog {
   error      String?
   runTimeMs  Int?
   createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
 }
 
 // 4. Fila de Tarefas (Queue/Retry): Motor de fila persistido no banco com retentativas e backoff
