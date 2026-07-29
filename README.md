@@ -24,11 +24,28 @@ graph TD
     Python -->|Queries Seguras| Postgres[(PostgreSQL / Multi-Tenant DB)]
     
     subgraph Interface do Usuário (Next.js)
-        Next[Next.js App Router] -->|Consumo REST API| Python
+        Next[Next.js App Router] -->|Consome REST API| Python
         Admin[SuperAdmin Panel]
         Clinic[Clinic Workspace & Realtime Inbox]
     end
 ```
+
+---
+
+## ⚙️ Decisões Críticas de Projeto (Architectural Decision Records)
+
+Para garantir que a plataforma pudesse escalar de forma robusta e comercial para centenas de clínicas simultâneas, tomamos decisões de engenharia específicas afastando-nos de abordagens "no-code/low-code" genéricas:
+
+### 1. Desacoplamento do n8n no Core do Backend (Código vs. Fluxos Visuais)
+*   **O Problema**: Utilizar o n8n ou ferramentas visuais para gerenciar toda a lógica de banco de dados, regras de negócio complexas e rotinas de faturamento cria gargalos. Fluxos visuais são difíceis de testar unitariamente, carecem de tipagem forte e dificultam o controle de versão e CI/CD.
+*   **A Solução**: O n8n foi limitado estritamente a atuar como um **disparador de eventos (Event Dispatcher)** e ponte para as APIs de IA (Whisper/Gemini). Toda a lógica transacional, validação de regras de negócio, persistência de dados e controle de assinaturas foram migrados para o **FastAPI (Python)**. Isso garante código testável, tipado com Pydantic, versionado em Git e integrado a pipelines automatizados de CI/CD.
+
+### 2. Abstração de Banco com Prisma vs. Supabase (Evitando Vendor Lock-in)
+*   **O Problema**: Plataformas Backend-as-a-Service (BaaS) como o Supabase aceleram o desenvolvimento inicial, mas criam um acoplamento forte com sua infraestrutura proprietária, encarecendo a escala e dificultando migrações futuras.
+*   **A Solução**: Optamos por uma arquitetura agnóstica de banco de dados utilizando o **Prisma ORM** sobre PostgreSQL/MySQL nativos. Isso garante:
+    *   **Portabilidade Total**: O sistema pode ser hospedado em qualquer nuvem (AWS RDS, Neon, Railway ou servidores locais Dedicados) apenas mudando a string de conexão.
+    *   **Isolamento de Conexões**: Controle granular sobre pools de conexões e políticas de segurança, sem depender de middleware proprietário.
+    *   **Tipagem Nativa**: Modelagem isolada que gera tipos estáticos direto para o Python, reduzindo erros em tempo de execução.
 
 ---
 
@@ -42,7 +59,7 @@ graph TD
 *   **Recepção Multimodal Ativa**:
     *   *Transcrição de Áudio (Whisper)*: O assistente de IA lê, transcreve e entende as intenções enviadas por mensagens de voz.
     *   *Visão Computacional (Gemini)*: Reconhece fotos de rosto enviadas por pacientes para pré-avaliar a pele e sugerir os procedimentos mais adequados com tato comercial.
-*   **Agente de Upsell & Retenção (Autônomo)**:
+*   **Agente de Retenção Ativa (Upsell)**:
     *   Processador em lote (CRON) que identifica procedimentos que perdem o efeito (como a Toxina Botulínica após 5 meses) e reengaja ativamente a paciente via WhatsApp para agendar o retoque.
 
 ### 3. Painel Administrativo Self-Service
@@ -61,6 +78,6 @@ graph TD
 
 ---
 
-## 🛡️ Propósitos de Negócio
+## 📄 Licença
 
-O **Secretar.ia** foi concebido para operar como um produto comercial escalável (SaaS). O objetivo principal é remover a necessidade de intervenção do administrador durante o onboarding de novos consultórios, automatizando o faturamento mensal recorrente (MRR) via Stripe/Asaas e integrando fluxos de provisionamento que cortam o acesso da IA em caso de atraso no pagamento.
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
