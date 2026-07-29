@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # Banco de Dados Principal: PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: secretaria-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: secretaria
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Banco de Dados Secundário (Suporte): MySQL
+  mysql:
+    image: mysql:8-oracle
+    container_name: secretaria-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: adminpassword
+      MYSQL_DATABASE: secretaria
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # Automação local com N8n
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: secretaria-n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  mysql_data:
+  n8n_data:
