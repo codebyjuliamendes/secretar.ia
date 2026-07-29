@@ -15,7 +15,7 @@ graph TD
     Patient([Paciente no WhatsApp]) -->|WhatsApp Integration| Evolution[Evolution API Gateway]
     Evolution -->|Webhook Events| N8n[n8n Automation Engine]
     
-    subgraph IA & Camada Cognitiva
+    subgraph "IA & Camada Cognitiva"
         N8n -->|Whisper API| Transcription[Transcrição e Análise de Áudio]
         N8n -->|Gemini 1.5 Pro| Vision[Visão Computacional e Skin Assessment]
     end
@@ -23,7 +23,7 @@ graph TD
     N8n -->|Processamento de Regra de Negócio| Python[FastAPI Backend - Python 3.12]
     Python -->|Queries Seguras| Postgres[(PostgreSQL / Multi-Tenant DB)]
     
-    subgraph Interface do Usuário (Next.js)
+    subgraph "Interface do Usuário (Next.js)"
         Next[Next.js App Router] -->|Consome REST API| Python
         Admin[SuperAdmin Panel]
         Clinic[Clinic Workspace & Realtime Inbox]
