@@ -1,29 +1,68 @@
-import Link from "next/link";
+import { LinkButton } from "@/components/ui/primitives";
+
+const FEATURES = [
+  {
+    title: "Atendimento 24h no WhatsApp",
+    text: "A secretária virtual responde dúvidas, informa preços e horários e registra pedidos de agendamento com base nas regras da sua clínica.",
+  },
+  {
+    title: "Agenda e pacientes em um só lugar",
+    text: "Cada conversa vira um paciente no CRM. Pedidos de agendamento chegam como pendentes para a equipe confirmar.",
+  },
+  {
+    title: "Retenção automática",
+    text: "Pacientes com procedimentos periódicos vencidos recebem um convite de retorno, sem duplicidade e respeitando seu plano.",
+  },
+  {
+    title: "Transbordo humano",
+    text: "Quando o paciente pede uma pessoa, a equipe é notificada na inbox e assume a conversa.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-24 relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl -z-10"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl -z-10"></div>
-      
-      <div className="z-10 text-center max-w-2xl glass p-12 rounded-3xl shadow-2xl">
-        <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
-          Aesthetics AI Platform
+    <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6 py-10">
+      <header className="flex items-center justify-between">
+        <span className="text-lg font-semibold tracking-tight">
+          Secretar<span className="text-primary">.ia</span>
+        </span>
+        <nav className="flex gap-2">
+          <LinkButton href="/login" variant="secondary" size="sm">
+            Entrar
+          </LinkButton>
+          <LinkButton href="/register" size="sm">
+            Criar conta
+          </LinkButton>
+        </nav>
+      </header>
+
+      <section className="my-auto py-16 text-center">
+        <p className="mb-3 text-sm font-medium uppercase tracking-widest text-primary">Para clínicas de saúde e estética</p>
+        <h1 className="mx-auto max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">
+          Sua secretária virtual no WhatsApp, com agenda, CRM e retenção.
         </h1>
-        <p className="text-muted-foreground text-lg mb-8">
-          Escolha o painel para realizar o login no sistema. Em produção, isso seria redirecionado via autenticação.
+        <p className="mx-auto mt-5 max-w-2xl text-lg text-muted">
+          Cadastre a clínica, conecte o WhatsApp lendo um QR Code e deixe a IA cuidar do primeiro atendimento. Sua equipe
+          confirma os agendamentos e assume quando o paciente pedir.
         </p>
-        
-        <div className="flex gap-6 justify-center">
-          <Link href="/admin" className="px-6 py-3 rounded-lg bg-card border border-border hover:border-pink-500 transition-colors shadow-sm font-semibold">
-            Login Master Admin
-          </Link>
-          <Link href="/clinic" className="px-6 py-3 rounded-lg bg-pink-600 hover:bg-pink-700 transition-colors shadow-sm font-semibold text-white">
-            Login Clínica (Tenant)
-          </Link>
+        <div className="mt-8 flex justify-center gap-3">
+          <LinkButton href="/register">Começar teste gratuito de 14 dias</LinkButton>
+          <LinkButton href="/login" variant="secondary">
+            Já tenho conta
+          </LinkButton>
         </div>
-      </div>
-    </div>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2" aria-label="Funcionalidades">
+        {FEATURES.map((f) => (
+          <div key={f.title} className="rounded-xl border border-border bg-surface p-5">
+            <h2 className="font-semibold">{f.title}</h2>
+            <p className="mt-1 text-sm text-muted">{f.text}</p>
+          </div>
+        ))}
+      </section>
+
+      <footer className="mt-12 text-center text-xs text-muted">© {new Date().getFullYear()} Secretar.ia</footer>
+    </main>
   );
 }

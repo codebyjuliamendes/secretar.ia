@@ -1,38 +1,32 @@
-# Imagem base leve do Python 3.12
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
-# Configura variáveis do terminal
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
-# Define diretório de trabalho
 WORKDIR /app
 
-# Instala curl e dependências de build básicas
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Instala as dependências do Python diretamente (sem travar em gerenciadores)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    fastapi==0.140.13 \
-    uvicorn==0.51.0 \
-    prisma==0.15.0 \
-    pydantic==2.13.4 \
-    python-dotenv==1.2.2 \
-    httpx==0.28.1
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copia todo o código do backend para o container
+# Dependencias primeiro (cache de camada)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Codigo
 COPY . .
+RUN uv sync --frozen --no-dev && uv run prisma generate --schema=prisma/schema.prisma
 
-# Roda o gerador do Prisma Client Python na inicialização do container
-# O gerador criará a pasta local 'generated_prisma' dentro de /app
-RUN python -m prisma generate --schema=prisma/schema.prisma
+# Usuario nao-root
+RUN useradd --create-home --uid 1001 appuser && chown -R appuser:appuser /app
+USER appuser
 
-# Expõe a porta do FastAPI
 EXPOSE 8000
 
-# Executa o uvicorn apontando para o app principal
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://localhost:8000/health || exit 1
+
+# Aplica migrations e sobe a API
+CMD ["sh", "-c", "uv run prisma migrate deploy --schema=prisma/schema.prisma && uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

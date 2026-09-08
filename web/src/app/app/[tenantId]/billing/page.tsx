@@ -1,0 +1,74 @@
+"use client";
+
+import { Alert, Badge, Card, ErrorState, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
+import { api } from "@/lib/api";
+import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel } from "@/lib/format";
+import type { Billing } from "@/lib/types";
+import { useQuery } from "@/lib/use-query";
+import { useTenant } from "../layout";
+
+function UsageBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const pct = limit < 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
+  const tone = pct >= 90 ? "bg-danger" : pct >= 70 ? "bg-warning" : "bg-primary";
+  return (
+    <div>
+      <div className="flex justify-between text-sm"><span>{label}</span><span className="tabular-nums text-muted">{used.toLocaleString("pt-BR")} / {limitLabel(limit)}</span></div>
+      <div className="mt-1 h-2 rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+        {limit >= 0 && <div className={cx("h-2 rounded-full", tone)} style={{ width: `${pct}%` }} />}
+      </div>
+    </div>
+  );
+}
+
+export default function BillingPage() {
+  const { tenant } = useTenant();
+  const { data, error, loading, refetch } = useQuery(() => api.get<Billing>(`clinic/${tenant.id}/billing`), [tenant.id]);
+
+  return (
+    <>
+      <PageHeader title="Plano & uso" description="Consumo do mês e limites do seu plano. Os limites são aplicados pelo servidor." />
+      {error ? (
+        <ErrorState message={error} onRetry={refetch} />
+      ) : loading || !data ? (
+        <Skeleton className="h-64" />
+      ) : (
+        <div className="space-y-4">
+          <Card title="Assinatura" action={<Badge tone={STATUS_TONE[data.status]}>{STATUS_LABEL[data.status]}</Badge>}>
+            <dl className="grid gap-4 text-sm sm:grid-cols-3">
+              <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}</dd></div>
+              <div><dt className="text-muted">{data.status === "TRIAL" ? "Teste termina em" : "Período"}</dt><dd className="font-medium">{data.status === "TRIAL" ? formatDate(data.trialEndsAt) : data.usage.period}</dd></div>
+              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : "Não iniciada"}</dd></div>
+            </dl>
+            {data.status === "PAST_DUE" && <div className="mt-4"><Alert tone="danger">Há um pagamento pendente. Regularize para reativar o atendimento automático.</Alert></div>}
+            {!data.subscriptionId && (
+              <div className="mt-4">
+                <Alert tone="info">Para contratar ou alterar o plano, fale com nossa equipe. A cobrança é feita via Stripe e o plano é atualizado automaticamente após a confirmação do pagamento.</Alert>
+              </div>
+            )}
+          </Card>
+          <Card title={`Uso em ${data.usage.period}`}>
+            <div className="space-y-4">
+              <UsageBar label="Mensagens atendidas pela IA" used={data.usage.aiMessages.used} limit={data.usage.aiMessages.limit} />
+              <UsageBar label="Pacientes cadastrados" used={data.usage.patients.used} limit={data.usage.patients.limit} />
+              <UsageBar label="Membros da equipe" used={data.usage.members.used} limit={data.usage.members.limit} />
+            </div>
+          </Card>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {data.plans.map((p) => (
+              <div key={p.plan} className={cx("rounded-xl border bg-surface p-5", p.plan === data.plan ? "border-primary" : "border-border")}>
+                <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{p.plan === data.plan && <Badge tone="primary">atual</Badge>}</div>
+                <p className="mt-2 text-2xl font-semibold">{p.priceCentsMonth ? brl(p.priceCentsMonth) : p.plan === "FREE" ? "R$ 0" : "Sob consulta"}<span className="text-sm font-normal text-muted">/mês</span></p>
+                <ul className="mt-3 space-y-1 text-sm text-muted">
+                  <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
+                  <li>{limitLabel(p.maxPatients)} pacientes</li>
+                  <li>{limitLabel(p.maxMembers)} membros</li>
+                  <li>{p.upsellCampaigns ? "Campanha de retorno" : "Sem campanha de retorno"}</li>
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

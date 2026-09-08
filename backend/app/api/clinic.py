@@ -1,0 +1,403 @@
+"""Workspace da clínica. Todas as rotas exigem membership no tenant da URL e permissão por papel."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query, Request, status
+from pydantic import BaseModel, Field
+
+from app.config import Settings
+from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
+from app.domain.roles import Permission
+from app.services import appointments as appt_service
+from app.services import audit
+from app.services import dashboard as dashboard_service
+from app.services import notifications as notif_service
+from app.services import patients as patient_service
+from app.services import team as team_service
+from app.services import tenants as tenant_service
+from app.services import whatsapp_onboarding as wa_service
+from app.services.marketing import run_upsell_campaign
+
+router = APIRouter(prefix="/clinic/{tenant_id}", tags=["clinic"])
+
+AppointmentStatusLiteral = Literal["PENDING", "CONFIRMED", "COMPLETED", "CANCELED", "NO_SHOW"]
+RoleLiteral = Literal["OWNER", "MANAGER", "STAFF"]
+
+
+# ------------------------------- Dashboard -------------------------------
+
+
+@router.get("/dashboard")
+async def dashboard(
+    days: int = Query(default=30, ge=7, le=365),
+    ctx: TenantContext = Depends(require_permission(Permission.DASHBOARD_VIEW)),
+):
+    return await dashboard_service.clinic_dashboard(ctx.tenant, days=days)
+
+
+@router.get("")
+async def tenant_summary(ctx: TenantContext = Depends(tenant_context)):
+    return {
+        **tenant_service.tenant_public(ctx.tenant),
+        "role": ctx.role.value,
+        "unreadNotifications": await notif_service.unread_count(ctx.tenant_id),
+    }
+
+
+# ------------------------------- Settings --------------------------------
+
+
+class SettingsUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    prompt: str | None = Field(default=None, min_length=10, max_length=4000)
+    prices: str | None = Field(default=None, max_length=4000)
+    businessHours: str | None = Field(default=None, max_length=300)
+    timezone: str | None = Field(default=None, max_length=64)
+    upsellEnabled: bool | None = None
+    upsellMessage: str | None = Field(default=None, max_length=1000)
+    upsellDays: int | None = Field(default=None, ge=7, le=730)
+    features: dict[str, bool] | None = None
+
+
+@router.get("/settings")
+async def get_settings(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
+    return tenant_service.tenant_settings_view(ctx.tenant)
+
+
+@router.patch("/settings")
+async def update_settings(
+    data: SettingsUpdateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+):
+    if data.timezone:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(data.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            from app.errors import AppError
+
+            raise AppError("Fuso horário inválido.", code="invalid_timezone") from exc
+    return await tenant_service.update_settings(
+        ctx.tenant_id, data.model_dump(exclude_unset=True), actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
+@router.get("/billing")
+async def billing(ctx: TenantContext = Depends(require_permission(Permission.BILLING_VIEW))):
+    return await tenant_service.billing_view(ctx.tenant_id)
+
+
+# ------------------------------- WhatsApp --------------------------------
+
+
+@router.get("/whatsapp/status")
+async def whatsapp_status(
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await wa_service.connection_status(settings, ctx.tenant)
+
+
+@router.post("/whatsapp/connect")
+async def whatsapp_connect(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await wa_service.start_connection(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+@router.post("/whatsapp/disconnect")
+async def whatsapp_disconnect(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await wa_service.disconnect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+# ------------------------------ Appointments -----------------------------
+
+
+class AppointmentCreateIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=32)
+    patientName: str | None = Field(default=None, max_length=120)
+    service: str = Field(min_length=2, max_length=120)
+    date: datetime
+    priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class AppointmentStatusIn(BaseModel):
+    status: AppointmentStatusLiteral
+
+
+class AppointmentUpdateIn(BaseModel):
+    service: str | None = Field(default=None, min_length=2, max_length=120)
+    date: datetime | None = None
+    priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+@router.get("/appointments")
+async def list_appointments(
+    status_: AppointmentStatusLiteral | None = Query(default=None, alias="status"),
+    date_from: datetime | None = Query(default=None, alias="from"),
+    date_to: datetime | None = Query(default=None, alias="to"),
+    search: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW)),
+):
+    return await appt_service.list_appointments(
+        ctx.tenant_id,
+        status=status_,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/appointments", status_code=status.HTTP_201_CREATED)
+async def create_appointment(
+    data: AppointmentCreateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_MANAGE)),
+):
+    return await appt_service.create_manual(
+        ctx.tenant_id,
+        phone=data.phone,
+        patient_name=data.patientName,
+        service=data.service,
+        date=data.date,
+        price_cents=data.priceCents,
+        notes=data.notes,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+        plan=str(ctx.tenant.plan),
+    )
+
+
+@router.patch("/appointments/{appointment_id}")
+async def update_appointment(
+    appointment_id: str,
+    data: AppointmentUpdateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_MANAGE)),
+):
+    return await appt_service.update_details(
+        ctx.tenant_id,
+        appointment_id,
+        data=data.model_dump(exclude_unset=True),
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.post("/appointments/{appointment_id}/status")
+async def change_appointment_status(
+    appointment_id: str,
+    data: AppointmentStatusIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_MANAGE)),
+):
+    return await appt_service.change_status(
+        ctx.tenant_id,
+        appointment_id,
+        new_status=data.status,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+# -------------------------------- Patients -------------------------------
+
+
+class PatientCreateIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=32)
+    name: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class PatientUpdateIn(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+@router.get("/patients")
+async def list_patients(
+    search: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_VIEW)),
+):
+    return await patient_service.list_patients(ctx.tenant_id, search=search, limit=limit, offset=offset)
+
+
+@router.post("/patients", status_code=status.HTTP_201_CREATED)
+async def create_patient(
+    data: PatientCreateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_MANAGE)),
+):
+    return await patient_service.create_patient(
+        ctx.tenant_id,
+        phone=data.phone,
+        name=data.name,
+        notes=data.notes,
+        plan=str(ctx.tenant.plan),
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.get("/patients/{patient_id}")
+async def get_patient(patient_id: str, ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_VIEW))):
+    return await patient_service.get_patient(ctx.tenant_id, patient_id)
+
+
+@router.patch("/patients/{patient_id}")
+async def update_patient(
+    patient_id: str,
+    data: PatientUpdateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_MANAGE)),
+):
+    return await patient_service.update_patient(
+        ctx.tenant_id,
+        patient_id,
+        data=data.model_dump(exclude_unset=True),
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.delete("/patients/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_patient(
+    patient_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_MANAGE)),
+):
+    await patient_service.delete_patient(ctx.tenant_id, patient_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+    return None
+
+
+# ----------------------------- Notifications -----------------------------
+
+
+@router.get("/notifications")
+async def list_notifications(
+    unread: bool = Query(default=False),
+    limit: int = Query(default=30, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    ctx: TenantContext = Depends(require_permission(Permission.INBOX_VIEW)),
+):
+    items = await notif_service.list_notifications(ctx.tenant_id, unread_only=unread, limit=limit, cursor=cursor)
+    return {
+        "items": items,
+        "unreadCount": await notif_service.unread_count(ctx.tenant_id),
+        "nextCursor": items[-1]["id"] if len(items) == limit else None,
+    }
+
+
+@router.post("/notifications/read")
+async def mark_notifications_read(
+    notification_id: str | None = Query(default=None, alias="id"),
+    ctx: TenantContext = Depends(require_permission(Permission.INBOX_MANAGE)),
+):
+    return {"updated": await notif_service.mark_read(ctx.tenant_id, notification_id)}
+
+
+# ---------------------------------- Team ---------------------------------
+
+
+class InviteIn(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    name: str = Field(min_length=2, max_length=120)
+    role: RoleLiteral = "STAFF"
+
+
+class RoleIn(BaseModel):
+    role: RoleLiteral
+
+
+@router.get("/team")
+async def list_team(ctx: TenantContext = Depends(require_permission(Permission.TEAM_VIEW))):
+    return {"items": await team_service.list_members(ctx.tenant_id)}
+
+
+@router.post("/team", status_code=status.HTTP_201_CREATED)
+async def invite(
+    data: InviteIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.TEAM_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await team_service.invite_member(
+        settings,
+        ctx.tenant,
+        email=data.email,
+        name=data.name,
+        role=data.role,
+        actor_role=ctx.role.value,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.patch("/team/{membership_id}")
+async def change_role(
+    membership_id: str,
+    data: RoleIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.TEAM_MANAGE)),
+):
+    return await team_service.change_role(
+        ctx.tenant_id,
+        membership_id,
+        role=data.role,
+        actor_role=ctx.role.value,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.delete("/team/{membership_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_member(
+    membership_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.TEAM_MANAGE)),
+):
+    await team_service.remove_member(
+        ctx.tenant_id,
+        membership_id,
+        actor_role=ctx.role.value,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+    return None
+
+
+# ---------------------------- Audit & Marketing --------------------------
+
+
+@router.get("/audit")
+async def audit_log(
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+    ctx: TenantContext = Depends(require_permission(Permission.AUDIT_VIEW)),
+):
+    items = await audit.list_for_tenant(ctx.tenant_id, limit=limit, cursor=cursor)
+    return {"items": items, "nextCursor": items[-1]["id"] if len(items) == limit else None}
+
+
+@router.post("/marketing/upsell/preview")
+async def upsell_preview(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))):
+    return await run_upsell_campaign(tenant_id=ctx.tenant_id, dry_run=True)

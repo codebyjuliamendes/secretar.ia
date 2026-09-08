@@ -1,26 +1,108 @@
 @import "tailwindcss";
 
-@theme {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-card: #18181b;
-  --color-card-foreground: #fafafa;
-  --color-primary: #ec4899;
-  --color-primary-foreground: #ffffff;
-  --color-muted: #27272a;
-  --color-muted-foreground: #a1a1aa;
-  --color-border: #27272a;
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --c-bg: #f7f7f8;
+  --c-surface: #ffffff;
+  --c-surface-2: #f1f1f4;
+  --c-fg: #111114;
+  --c-fg-muted: #5b5b66;
+  --c-border: #e3e3e8;
+  --c-primary: #c9337c;
+  --c-primary-hover: #b02a6c;
+  --c-primary-soft: #fbe7f1;
+  --c-primary-fg: #ffffff;
+  --c-success: #1f7a4d;
+  --c-success-soft: #e3f4ea;
+  --c-warning: #9a5b00;
+  --c-warning-soft: #fdf1dc;
+  --c-danger: #b3261e;
+  --c-danger-soft: #fbe5e3;
+  --c-info: #1d5fb4;
+  --c-info-soft: #e3ecfa;
+  --c-chart: #c9337c;
+  --c-chart-2: #1d5fb4;
+  color-scheme: light;
 }
 
+[data-theme="dark"] {
+  --c-bg: #0c0c10;
+  --c-surface: #15151b;
+  --c-surface-2: #1d1d25;
+  --c-fg: #f3f3f6;
+  --c-fg-muted: #9c9cab;
+  --c-border: #2a2a34;
+  --c-primary: #f06aae;
+  --c-primary-hover: #f584bd;
+  --c-primary-soft: #3a1a2b;
+  --c-primary-fg: #1a0b13;
+  --c-success: #5fd39a;
+  --c-success-soft: #14301f;
+  --c-warning: #f0b95c;
+  --c-warning-soft: #33260e;
+  --c-danger: #f28b84;
+  --c-danger-soft: #3a1614;
+  --c-info: #7fb0f5;
+  --c-info-soft: #14233a;
+  --c-chart: #f06aae;
+  --c-chart-2: #7fb0f5;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-foreground: var(--c-fg);
+  --color-muted: var(--c-fg-muted);
+  --color-border: var(--c-border);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-primary-soft: var(--c-primary-soft);
+  --color-primary-foreground: var(--c-primary-fg);
+  --color-success: var(--c-success);
+  --color-success-soft: var(--c-success-soft);
+  --color-warning: var(--c-warning);
+  --color-warning-soft: var(--c-warning-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-info: var(--c-info);
+  --color-info-soft: var(--c-info-soft);
+  --color-chart: var(--c-chart);
+  --color-chart-2: var(--c-chart-2);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Glassmorphism utils */
-.glass {
-  background: rgba(24, 24, 27, 0.6);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+*:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

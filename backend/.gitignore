@@ -1,19 +1,18 @@
 # Ambientes virtuais do Python
 .venv/
 venv/
-ENV/
-env/
 
 # Cache do Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 .pytest_cache/
+.ruff_cache/
 .mypy_cache/
 
-# Banco de dados e ambiente local
+# Ambiente local e artefatos gerados
 .env
+.env.*
+!.env.example
 generated_prisma/
 
 # IDEs

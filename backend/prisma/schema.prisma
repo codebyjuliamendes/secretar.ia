@@ -9,110 +9,327 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum PlatformRole {
+  USER
+  SUPER_ADMIN
+}
+
+enum TenantRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  SUSPENDED
+}
+
+enum Plan {
+  FREE
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELED
+  NO_SHOW
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum VerificationType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum NotificationType {
+  HUMAN_HANDOFF
+  APPOINTMENT_REQUESTED
+  APPOINTMENT_CANCELED
+  BILLING
+  SYSTEM
+}
+
+// -------------------------------------------------------------
+// IDENTIDADE E ACESSO
+// -------------------------------------------------------------
+
+model User {
+  id              String       @id @default(cuid())
+  email           String       @unique
+  passwordHash    String
+  name            String
+  platformRole    PlatformRole @default(USER)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  memberships        Membership[]
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+  auditLogs          AuditLog[]
+}
+
+model Membership {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role      TenantRole @default(STAFF)
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model VerificationToken {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      VerificationType
+  tokenHash String           @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, type])
+}
+
+// -------------------------------------------------------------
+// TENANT (CLINICA) E DADOS DE NEGOCIO
+// -------------------------------------------------------------
+
 model Tenant {
-  id             String        @id @default(cuid())
-  name           String
-  whatsapp       String        @unique
-  prompt         String
-  prices         String?       
-  businessHours  String?      
-  subscriptionId String?      // ID da assinatura Stripe/Asaas
-  status         String        @default("TRIAL") // TRIAL, ACTIVE, PAST_DUE
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  patients       Patient[]
-  appointments   Appointment[]
-  logs           Log[]
+  id                String       @id @default(cuid())
+  name              String
+  whatsapp          String       @unique
+  whatsappInstance  String?      @unique
+  whatsappConnected Boolean      @default(false)
+  prompt            String
+  prices            String?
+  businessHours     String?
+  timezone          String       @default("America/Sao_Paulo")
+  status            TenantStatus @default(TRIAL)
+  plan              Plan         @default(FREE)
+  trialEndsAt       DateTime?
+  subscriptionId    String?      @unique
+  customerId        String?
+  upsellEnabled     Boolean      @default(false)
+  upsellMessage     String?
+  upsellDays        Int          @default(150)
+  features          Json         @default("{}")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  memberships       Membership[]
+  patients          Patient[]
+  appointments      Appointment[]
+  messages          Message[]
+  processedMessages ProcessedMessage[]
+  executionLogs     ExecutionLog[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  usageCounters     UsageCounter[]
+  upsellDispatches  UpsellDispatch[]
 }
 
 model Patient {
-  id           String        @id @default(cuid())
-  tenantId     String
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  phone        String
-  name         String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  appointments Appointment[]
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phone     String
+  name      String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments     Appointment[]
+  upsellDispatches UpsellDispatch[]
 
   @@unique([tenantId, phone])
+  @@index([tenantId, createdAt])
 }
 
 model Appointment {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  patientId   String
-  patient     Patient  @relation(fields: [patientId], references: [id])
-  service     String
-  date        DateTime
-  status      String   @default("PENDENTE") 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String            @id @default(cuid())
+  tenantId   String
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId  String
+  patient    Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  service    String
+  date       DateTime
+  status     AppointmentStatus @default(PENDING)
+  priceCents Int?
+  notes      String?
+  source     String            @default("AI")
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  upsellDispatches UpsellDispatch[]
 
   @@index([tenantId, date])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
   @@index([date, status])
 }
 
-model Log {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  level     String   @default("INFO")
-  message   String
-  createdAt DateTime @default(now())
-
-  @@index([tenantId, level])
-}
-
 // -------------------------------------------------------------
-// PILARES DE ENGENHARIA RESILIENTE (SUBSTITUTOS DO N8N)
+// CONVERSA, IDEMPOTENCIA E OBSERVABILIDADE
 // -------------------------------------------------------------
 
-// 1. Idempotência: Garante que a mesma mensagem do WhatsApp não seja processada duas vezes
 model ProcessedMessage {
-  messageId   String   @id
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messageId   String
   processedAt DateTime @default(now())
+
+  @@id([tenantId, messageId])
 }
 
-// 2. Memória Conversacional: Mantém o contexto de diálogo de cada paciente de forma persistente
+// Idempotência de webhooks externos sem tenant (ex.: eventos de billing). id = "<provider>:<eventId>"
+model WebhookEvent {
+  id         String   @id
+  provider   String
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+}
+
 model Message {
-  id        String   @id @default(cuid())
-  phone     String
+  id        String      @id @default(cuid())
   tenantId  String
-  role      String   // 'user' ou 'assistant'
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phone     String
+  role      MessageRole
   content   String
-  createdAt DateTime @default(now())
+  createdAt DateTime    @default(now())
 
-  @@index([phone, tenantId])
+  @@index([tenantId, phone, createdAt])
 }
 
-// 3. Observabilidade: Log estruturado de cada agente de IA
 model ExecutionLog {
-  id         String   @id @default(cuid())
-  tenantId   String
-  agent      String   // 'recepcio', 'agenda', 'cancelamento', etc.
-  input      String
-  output     String?
-  error      String?
-  runTimeMs  Int?
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent        String
+  intent       String?
+  model        String?
+  input        String
+  output       String?
+  error        String?
+  inputTokens  Int?
+  outputTokens Int?
+  runTimeMs    Int?
+  createdAt    DateTime @default(now())
 
   @@index([tenantId, createdAt])
 }
 
-// 4. Fila de Tarefas (Queue/Retry): Motor de fila persistido no banco com retentativas e backoff
 model Job {
-  id         String   @id @default(cuid())
-  name       String   // 'enviar-whatsapp', 'sincronizar-calendar', etc.
-  payload    String   // Conteúdo JSON da tarefa
-  status     String   @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
-  retries    Int      @default(0)
-  maxRetries Int      @default(5)
+  id         String    @id @default(cuid())
+  name       String
+  payload    Json
+  status     JobStatus @default(PENDING)
+  retries    Int       @default(0)
+  maxRetries Int       @default(5)
   runAt      DateTime
+  lockedAt   DateTime?
   error      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([status, runAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  tenantId  String
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  phone     String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([tenantId, readAt, createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorUserId  String?
+  actor        User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action       String
+  resourceType String
+  resourceId   String?
+  metadata     Json?
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model UsageCounter {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  period   String
+  metric   String
+  count    Int    @default(0)
+
+  @@unique([tenantId, period, metric])
+}
+
+model UpsellDispatch {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId     String
+  patient       Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([tenantId, createdAt])
 }

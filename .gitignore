@@ -1,4 +1,19 @@
+# Ambiente
 .env
+.env.*
+!.env.example
+
+# Node
 node_modules/
+.next/
+
+# Python
 __pycache__/
-.n8n/
+.venv/
+.pytest_cache/
+.ruff_cache/
+backend/generated_prisma/
+
+# Sistema
+.DS_Store
+Thumbs.db
