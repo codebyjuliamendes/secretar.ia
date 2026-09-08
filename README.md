@@ -41,8 +41,14 @@ graph LR
 ```
 
 Fluxo de uma mensagem: webhook → idempotência por tenant → verificação de status/plano/quota → paciente →
-histórico → IA (JSON validado) → ações (agendamento pendente, cancelamento, transbordo) → memória e log de
-execução → resposta enfileirada → worker envia via Evolution API com retry/backoff.
+histórico → contexto de agenda (catálogo de serviços, janelas de atendimento e horários livres reais) → IA
+(JSON validado) → ações (agendamento pendente só se o horário estiver livre, cancelamento, transbordo) →
+memória e log de execução → resposta enfileirada → worker envia via Evolution API com retry/backoff.
+
+Agenda por clínica: `Service` (nome, duração, preço) e `AvailabilityRule` (janelas por dia da semana no fuso da
+clínica). Horários livres são gerados a partir das janelas descontando agendamentos `PENDING`/`CONFIRMED`;
+criação e remarcação verificam conflito (a equipe pode forçar um encaixe com `force=true`). O painel tem um
+calendário semanal (`/app/{tenantId}/calendar`) e editores de serviços e horários nas configurações.
 
 ## Stack
 

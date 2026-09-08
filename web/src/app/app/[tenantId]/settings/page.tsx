@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings";
 import { Alert, Badge, Button, Card, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
@@ -24,6 +25,8 @@ export default function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
             <AssistantForm settings={data} canManage={canManage} onSaved={async () => { await Promise.all([refetch(), reload()]); }} />
+            <ServicesCard canManage={canManage} />
+            <AvailabilityCard canManage={canManage} />
             <UpsellForm settings={data} canManage={canManage} onSaved={refetch} />
           </div>
           <div className="space-y-4">
@@ -72,11 +75,11 @@ function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSetti
         <Field label="Prompt (personalidade e regras)" htmlFor="prompt" required error={fieldErrors.prompt} hint="Mínimo de 10 caracteres. Ex.: tom de voz, o que pode e não pode prometer.">
           <Textarea id="prompt" rows={5} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
         </Field>
-        <Field label="Serviços e preços" htmlFor="prices" hint="Um por linha. Ex.: Toxina botulínica: R$ 990" error={fieldErrors.prices}>
-          <Textarea id="prices" rows={5} value={form.prices} onChange={(e) => setForm({ ...form, prices: e.target.value })} />
+        <Field label="Informações extras para a IA" htmlFor="prices" hint="Opcional. O catálogo de serviços abaixo preenche este campo automaticamente; use para detalhes como formas de pagamento ou endereço." error={fieldErrors.prices}>
+          <Textarea id="prices" rows={4} value={form.prices} onChange={(e) => setForm({ ...form, prices: e.target.value })} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Horário de funcionamento" htmlFor="hours" error={fieldErrors.businessHours}><Input id="hours" placeholder="Seg a sex, 09h às 18h" value={form.businessHours} onChange={(e) => setForm({ ...form, businessHours: e.target.value })} /></Field>
+          <Field label="Horário de funcionamento (texto)" htmlFor="hours" error={fieldErrors.businessHours} hint="Gerado a partir dos horários de atendimento abaixo."><Input id="hours" placeholder="Seg a sex, 09h às 18h" value={form.businessHours} onChange={(e) => setForm({ ...form, businessHours: e.target.value })} /></Field>
           <Field label="Fuso horário" htmlFor="tz" error={fieldErrors.timezone} hint="Formato IANA, ex.: America/Sao_Paulo"><Input id="tz" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} /></Field>
         </div>
         {canManage && <Button onClick={save} loading={saving}>Salvar assistente</Button>}

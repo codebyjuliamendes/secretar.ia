@@ -20,6 +20,7 @@ from app.security.passwords import (
 )
 from app.security.tokens import create_access_token, generate_opaque_token, hash_token
 from app.services import audit
+from app.services.scheduling import DEFAULT_RULES
 from generated_prisma.errors import UniqueViolationError
 
 log = get_logger("auth")
@@ -125,6 +126,11 @@ async def register(
                 }
             )
             await tx.membership.create(data={"userId": user.id, "tenantId": tenant.id, "role": "OWNER"})
+            await tx.availabilityrule.create_many(
+                data=[
+                    {"tenantId": tenant.id, "weekday": wd, "startMin": s_, "endMin": e_} for wd, s_, e_ in DEFAULT_RULES
+                ]
+            )
     except UniqueViolationError as exc:
         msg = str(exc)
         if "whatsapp" in msg:

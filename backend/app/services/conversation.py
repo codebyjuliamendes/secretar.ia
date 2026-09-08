@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.db import db
@@ -13,7 +14,7 @@ from app.domain.plans import limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
-from app.services import notifications
+from app.services import notifications, scheduling
 from app.services.ai import AIDecision, AIService
 from app.services.tenants import is_tenant_operational
 from app.services.usage import AI_MESSAGES, ai_quota_available, increment
@@ -62,15 +63,43 @@ async def _upcoming(tenant_id: str, patient_id: str) -> list[dict]:
     return [{"id": a.id, "service": a.service, "date": a.date.isoformat(), "status": str(a.status)} for a in rows]
 
 
-async def _apply_actions(tenant, patient, decision: AIDecision, phone: str, text: str, upcoming: list[dict]) -> None:
+async def _apply_actions(
+    tenant, patient, decision: AIDecision, phone: str, text: str, upcoming: list[dict], services: list[dict]
+) -> None:
     name = patient.name or phone
     if decision.intent == Intent.SCHEDULE and decision.appointment_datetime and decision.appointment_service:
+        svc = scheduling.match_service(services, decision.appointment_service)
+        duration = (svc or {}).get("durationMin") or scheduling.DEFAULT_DURATION_MIN
+        available, reason = await scheduling.check_availability(tenant, decision.appointment_datetime, duration)
+        if not available:
+            # Nunca criamos um horário indisponível: respondemos com alternativas reais.
+            tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
+            alternatives = await scheduling.free_slots(
+                tenant,
+                start_from=max(datetime.now(UTC), decision.appointment_datetime - timedelta(hours=3)),
+                days=7,
+                duration_min=duration,
+                limit=3,
+            )
+            alt_txt = ", ".join(s.label(tz) for s in alternatives)
+            decision.reply = "Esse horário não está disponível. " + (
+                f"Posso oferecer: {alt_txt}. Qual prefere?"
+                if alt_txt
+                else "Vou pedir para a equipe te retornar com opções."
+            )
+            decision.extra["availability"] = reason
+            log.info("ai_slot_unavailable", reason=reason)
+            return
         appt = await db.appointment.create(
             data={
                 "tenantId": tenant.id,
                 "patientId": patient.id,
-                "service": decision.appointment_service[:120],
+                "serviceId": (svc or {}).get("id"),
+                "service": ((svc or {}).get("name") or decision.appointment_service)[:120],
                 "date": decision.appointment_datetime,
+                "durationMin": duration,
+                "endAt": decision.appointment_datetime + timedelta(minutes=duration),
+                "priceCents": (svc or {}).get("priceCents"),
                 "status": "PENDING",
                 "source": "AI",
             }
@@ -166,9 +195,21 @@ async def handle_inbound(
 
         history = await _history(tenant.id, phone)
         upcoming = await _upcoming(tenant.id, patient.id)
-        decision = await AIService(settings).decide(tenant, history=history, text=text, upcoming=upcoming)
+        services = await scheduling.list_services(tenant.id, only_active=True)
+        rules = await scheduling.get_rules(tenant.id)
+        tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
+        slots = await scheduling.free_slots(tenant, days=7, limit=6)
+        decision = await AIService(settings).decide(
+            tenant,
+            history=history,
+            text=text,
+            upcoming=upcoming,
+            services_text=scheduling.services_to_text(services) if services else None,
+            hours_text=scheduling.rules_to_text(rules) if rules else None,
+            free_slots_text=", ".join(s.label(tz) for s in slots) if slots else None,
+        )
 
-        await _apply_actions(tenant, patient, decision, phone, text, upcoming)
+        await _apply_actions(tenant, patient, decision, phone, text, upcoming, services)
 
         await db.message.create_many(
             data=[

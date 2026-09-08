@@ -56,6 +56,7 @@ export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNoti
   upsellEnabled: boolean;
   upsellMessage: string | null;
   upsellDays: number;
+  slotMinutes: number;
   features: Record<string, boolean>;
   planLimits: PlanLimits;
 }
@@ -99,10 +100,44 @@ export interface Dashboard {
   usage: Usage;
 }
 
+export interface Service {
+  id: string;
+  name: string;
+  durationMin: number;
+  priceCents: number | null;
+  description: string | null;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface AvailabilityRule {
+  weekday: number; // 0 = segunda ... 6 = domingo
+  start: string; // HH:MM
+  end: string; // HH:MM
+}
+
+export interface CalendarData {
+  timezone: string;
+  slotMinutes: number;
+  rules: AvailabilityRule[];
+  appointments: {
+    id: string;
+    service: string;
+    start: string;
+    end: string;
+    status: AppointmentStatus;
+    source: string;
+    patient: { id: string; name: string | null; phone: string } | null;
+  }[];
+}
+
 export interface Appointment {
   id: string;
   service: string;
+  serviceId: string | null;
   date: string;
+  durationMin: number;
+  end: string;
   status: AppointmentStatus;
   priceCents: number | null;
   notes: string | null;

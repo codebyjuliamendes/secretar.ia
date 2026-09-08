@@ -38,6 +38,7 @@ export function AppShell({
 
   const allNav: NavItem[] = [
     { href: base, label: "Visão geral" },
+    { href: `${base}/calendar`, label: "Calendário" },
     { href: `${base}/appointments`, label: "Agenda" },
     { href: `${base}/patients`, label: "Pacientes" },
     { href: `${base}/inbox`, label: "Inbox", badge: tenant.unreadNotifications },

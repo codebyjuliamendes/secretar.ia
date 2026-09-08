@@ -39,6 +39,7 @@ def tenant_settings_view(t) -> dict:
         "upsellEnabled": t.upsellEnabled,
         "upsellMessage": t.upsellMessage,
         "upsellDays": t.upsellDays,
+        "slotMinutes": t.slotMinutes,
         "features": t.features or {},
         "planLimits": plan_public_view(Plan(str(t.plan))),
     }

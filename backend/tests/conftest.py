@@ -62,11 +62,16 @@ async def database():
     from app.db import db
 
     if "secretaria_test" not in os.environ["DATABASE_URL"] and os.environ.get("ALLOW_NON_TEST_DB") != "1":
-        pytest.skip("DATABASE_URL não aponta para um banco de teste (a suíte trunca tabelas). Use *_test ou ALLOW_NON_TEST_DB=1.")
+        pytest.skip(
+            "DATABASE_URL não aponta para um banco de teste (a suíte trunca tabelas). "
+            "Use *_test ou ALLOW_NON_TEST_DB=1."
+        )
     # Garante o schema no banco de teste (idempotente).
-    subprocess.run(
+    subprocess.run(  # noqa: ASYNC221 - roda uma vez por sessão, antes de qualquer I/O assíncrono
         ["uv", "run", "prisma", "migrate", "deploy", "--schema=prisma/schema.prisma"],
-        check=True, capture_output=True, cwd=os.path.dirname(os.path.dirname(__file__)),
+        check=True,
+        capture_output=True,
+        cwd=os.path.dirname(os.path.dirname(__file__)),
         env={**os.environ, "PYTHONUTF8": "1"},
     )
     try:

@@ -12,7 +12,7 @@ from app.config import Settings
 from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
-from app.services import audit
+from app.services import audit, scheduling
 from app.services import dashboard as dashboard_service
 from app.services import notifications as notif_service
 from app.services import patients as patient_service
@@ -128,9 +128,12 @@ class AppointmentCreateIn(BaseModel):
     phone: str = Field(min_length=8, max_length=32)
     patientName: str | None = Field(default=None, max_length=120)
     service: str = Field(min_length=2, max_length=120)
+    serviceId: str | None = Field(default=None, max_length=64)
     date: datetime
+    durationMin: int | None = Field(default=None, ge=5, le=600)
     priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
     notes: str | None = Field(default=None, max_length=2000)
+    force: bool = False  # encaixe consciente fora do horário ou sobreposto
 
 
 class AppointmentStatusIn(BaseModel):
@@ -140,8 +143,10 @@ class AppointmentStatusIn(BaseModel):
 class AppointmentUpdateIn(BaseModel):
     service: str | None = Field(default=None, min_length=2, max_length=120)
     date: datetime | None = None
+    durationMin: int | None = Field(default=None, ge=5, le=600)
     priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
     notes: str | None = Field(default=None, max_length=2000)
+    force: bool = False
 
 
 @router.get("/appointments")
@@ -172,13 +177,16 @@ async def create_appointment(
     ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_MANAGE)),
 ):
     return await appt_service.create_manual(
-        ctx.tenant_id,
+        ctx.tenant,
         phone=data.phone,
         patient_name=data.patientName,
         service=data.service,
+        service_id=data.serviceId,
         date=data.date,
+        duration_min=data.durationMin,
         price_cents=data.priceCents,
         notes=data.notes,
+        force=data.force,
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
         plan=str(ctx.tenant.plan),
@@ -193,9 +201,10 @@ async def update_appointment(
     ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_MANAGE)),
 ):
     return await appt_service.update_details(
-        ctx.tenant_id,
+        ctx.tenant,
         appointment_id,
-        data=data.model_dump(exclude_unset=True),
+        data=data.model_dump(exclude_unset=True, exclude={"force"}),
+        force=data.force,
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
     )
@@ -215,6 +224,121 @@ async def change_appointment_status(
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
     )
+
+
+# ------------------- Scheduling: calendar, availability, services -------------------
+
+
+class RuleIn(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+
+
+class RulesIn(BaseModel):
+    rules: list[RuleIn] = Field(max_length=21)
+    slotMinutes: int | None = Field(default=None, ge=5, le=240)
+
+
+class ServiceIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    durationMin: int = Field(default=60, ge=5, le=600)
+    priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    description: str | None = Field(default=None, max_length=1000)
+    active: bool = True
+    sortOrder: int = Field(default=0, ge=0, le=1000)
+
+
+class ServiceUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    durationMin: int | None = Field(default=None, ge=5, le=600)
+    priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    description: str | None = Field(default=None, max_length=1000)
+    active: bool | None = None
+    sortOrder: int | None = Field(default=None, ge=0, le=1000)
+
+
+@router.get("/calendar")
+async def calendar_view(
+    start: datetime = Query(alias="from"),
+    end: datetime = Query(alias="to"),
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW)),
+):
+    return await scheduling.calendar(ctx.tenant, start=start, end=end)
+
+
+@router.get("/availability")
+async def availability(
+    start: datetime | None = Query(default=None, alias="from"),
+    days: int = Query(default=7, ge=1, le=31),
+    duration: int = Query(default=60, ge=5, le=600),
+    ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW)),
+):
+    slots = await scheduling.free_slots(ctx.tenant, start_from=start, days=days, duration_min=duration, limit=200)
+    return {"slots": [{"start": s.start.isoformat(), "end": s.end.isoformat()} for s in slots]}
+
+
+@router.get("/availability/rules")
+async def get_rules(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
+    return {
+        "rules": scheduling.rules_view(await scheduling.get_rules(ctx.tenant_id)),
+        "slotMinutes": ctx.tenant.slotMinutes,
+    }
+
+
+@router.put("/availability/rules")
+async def put_rules(
+    data: RulesIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+):
+    rules = await scheduling.set_rules(
+        ctx.tenant_id, [r.model_dump() for r in data.rules], actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+    slot = ctx.tenant.slotMinutes
+    if data.slotMinutes:
+        await tenant_service.update_settings(
+            ctx.tenant_id, {"slotMinutes": data.slotMinutes}, actor_user_id=ctx.user.id, ip=client_ip(request)
+        )
+        slot = data.slotMinutes
+    return {"rules": rules, "slotMinutes": slot}
+
+
+@router.get("/services")
+async def list_services(
+    active: bool = Query(default=False),
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
+):
+    return {"items": await scheduling.list_services(ctx.tenant_id, only_active=active)}
+
+
+@router.post("/services", status_code=status.HTTP_201_CREATED)
+async def create_service(
+    data: ServiceIn, request: Request, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    return await scheduling.create_service(
+        ctx.tenant_id, data.model_dump(), actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
+@router.patch("/services/{service_id}")
+async def update_service(
+    service_id: str,
+    data: ServiceUpdateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+):
+    return await scheduling.update_service(
+        ctx.tenant_id, service_id, data.model_dump(exclude_unset=True), actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
+@router.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_service(
+    service_id: str, request: Request, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    await scheduling.delete_service(ctx.tenant_id, service_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+    return None
 
 
 # -------------------------------- Patients -------------------------------

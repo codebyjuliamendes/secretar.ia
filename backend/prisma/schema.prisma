@@ -155,10 +155,13 @@ model Tenant {
   upsellEnabled     Boolean      @default(false)
   upsellMessage     String?
   upsellDays        Int          @default(150)
+  slotMinutes       Int          @default(30)
   features          Json         @default("{}")
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
+  services          Service[]
+  availabilityRules AvailabilityRule[]
   memberships       Membership[]
   patients          Patient[]
   appointments      Appointment[]
@@ -188,15 +191,51 @@ model Patient {
   @@index([tenantId, createdAt])
 }
 
+// Catálogo de serviços da clínica (duração define o tamanho do bloco na agenda)
+model Service {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  durationMin Int      @default(60)
+  priceCents  Int?
+  description String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+}
+
+// Janelas de atendimento por dia da semana (0 = segunda ... 6 = domingo), em minutos locais desde 00:00
+model AvailabilityRule {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  weekday  Int
+  startMin Int
+  endMin   Int
+
+  @@index([tenantId, weekday])
+}
+
 model Appointment {
-  id         String            @id @default(cuid())
-  tenantId   String
-  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patientId  String
-  patient    Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  service    String
-  date       DateTime
-  status     AppointmentStatus @default(PENDING)
+  id          String            @id @default(cuid())
+  tenantId    String
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  serviceId   String?
+  serviceRef  Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service     String
+  date        DateTime
+  durationMin Int               @default(60)
+  endAt       DateTime?
+  status      AppointmentStatus @default(PENDING)
   priceCents Int?
   notes      String?
   source     String            @default("AI")
@@ -206,6 +245,7 @@ model Appointment {
   upsellDispatches UpsellDispatch[]
 
   @@index([tenantId, date])
+  @@index([tenantId, date, endAt])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([date, status])
