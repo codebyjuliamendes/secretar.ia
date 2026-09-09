@@ -171,16 +171,16 @@ async def test_reschedule_checks_conflicts(client, clean_db):
     reg = await register_user(client)
     tid, h = reg["tenantId"], auth_headers(reg)
     ra = await client.post(
-            f"/api/clinic/{tid}/appointments",
-            headers=h,
-            json={"phone": "5581999990000", "service": "Serviço A", "date": MON_10H_LOCAL, "durationMin": 60},
+        f"/api/clinic/{tid}/appointments",
+        headers=h,
+        json={"phone": "5581999990000", "service": "Serviço A", "date": MON_10H_LOCAL, "durationMin": 60},
     )
     assert ra.status_code == 201, ra.text
     a = ra.json()
     rb = await client.post(
-            f"/api/clinic/{tid}/appointments",
-            headers=h,
-            json={"phone": "5581999990001", "service": "Serviço B", "date": "2030-01-07T15:00:00Z", "durationMin": 60},
+        f"/api/clinic/{tid}/appointments",
+        headers=h,
+        json={"phone": "5581999990001", "service": "Serviço B", "date": "2030-01-07T15:00:00Z", "durationMin": 60},
     )
     assert rb.status_code == 201, rb.text
     b = rb.json()
