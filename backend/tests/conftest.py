@@ -36,6 +36,8 @@ get_settings.cache_clear()
 TABLES = [
     "RateLimitBucket",
     "CalendarConnection",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
     "UpsellDispatch",
     "UsageCounter",
     "AuditLog",

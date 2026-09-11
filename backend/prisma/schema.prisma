@@ -173,6 +173,8 @@ model Tenant {
   usageCounters     UsageCounter[]
   upsellDispatches  UpsellDispatch[]
   calendarConnection CalendarConnection?
+  knowledgeDocuments KnowledgeDocument[]
+  knowledgeChunks    KnowledgeChunk[]
 }
 
 model Patient {
@@ -361,6 +363,38 @@ model UsageCounter {
   count    Int    @default(0)
 
   @@unique([tenantId, period, metric])
+}
+
+// Base de conhecimento (RAG). Documentos livres da clínica → trechos com embedding (pgvector, 768 dims).
+// `embedding` é Unsupported para o Prisma Client: leitura/escrita via SQL bruto em services/knowledge.py.
+model KnowledgeDocument {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title          String
+  content        String
+  chunkCount     Int      @default(0)
+  embeddingModel String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  chunks KnowledgeChunk[]
+
+  @@index([tenantId, createdAt])
+}
+
+model KnowledgeChunk {
+  id         String                  @id @default(cuid())
+  tenantId   String
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documentId String
+  document   KnowledgeDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position   Int
+  content    String
+  embedding  Unsupported("vector(768)")?
+
+  @@index([tenantId])
+  @@index([documentId])
 }
 
 // Conexão OAuth da clínica com um calendário externo (Google). Tokens cifrados (Fernet) em repouso.

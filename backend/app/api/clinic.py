@@ -12,7 +12,7 @@ from app.config import Settings
 from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
-from app.services import audit, calendar_sync, scheduling
+from app.services import audit, calendar_sync, knowledge, scheduling
 from app.services import billing as billing_service
 from app.services import dashboard as dashboard_service
 from app.services import notifications as notif_service
@@ -157,6 +157,69 @@ async def whatsapp_disconnect(
     settings: Settings = Depends(get_settings_dep),
 ):
     return await wa_service.disconnect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+# --------------------------- Base de conhecimento ------------------------
+
+
+class KnowledgeDocumentIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    content: str = Field(min_length=20, max_length=30_000)
+
+
+@router.get("/knowledge")
+async def list_knowledge(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
+    return {"items": await knowledge.list_documents(ctx.tenant_id)}
+
+
+@router.get("/knowledge/{document_id}")
+async def get_knowledge(document_id: str, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
+    return await knowledge.get_document(ctx.tenant_id, document_id)
+
+
+@router.post("/knowledge", status_code=status.HTTP_201_CREATED)
+async def add_knowledge(
+    data: KnowledgeDocumentIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await knowledge.add_document(
+        settings,
+        ctx.tenant_id,
+        title=data.title,
+        content=data.content,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.delete("/knowledge/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_knowledge(
+    document_id: str, request: Request, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    await knowledge.delete_document(ctx.tenant_id, document_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+    return None
+
+
+@router.post("/knowledge/reindex")
+async def reindex_knowledge(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await knowledge.reindex(settings, ctx.tenant_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+@router.post("/knowledge/search")
+async def search_knowledge(
+    q: str = Query(min_length=2, max_length=500),
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Teste manual da recuperação: o que a IA veria para esta pergunta."""
+    snippets = await knowledge.retrieve(settings, ctx.tenant_id, q)
+    return {"items": [{"title": s.title, "content": s.content, "score": round(s.score, 4)} for s in snippets]}
 
 
 # ----------------------------- Google Calendar ---------------------------

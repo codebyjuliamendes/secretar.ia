@@ -14,7 +14,7 @@ from app.domain.plans import limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
-from app.services import calendar_sync, notifications, scheduling
+from app.services import calendar_sync, knowledge, notifications, scheduling
 from app.services import media as media_service
 from app.services.ai import AIDecision, AIService
 from app.services.tenants import is_tenant_operational
@@ -245,6 +245,7 @@ async def handle_inbound(
         rules = await scheduling.get_rules(tenant.id)
         tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
         slots = await scheduling.free_slots(tenant, days=7, limit=6)
+        snippets = await knowledge.retrieve(settings, tenant.id, text)
         decision = await AIService(settings).decide(
             tenant,
             history=history,
@@ -253,7 +254,11 @@ async def handle_inbound(
             services_text=scheduling.services_to_text(services) if services else None,
             hours_text=scheduling.rules_to_text(rules) if rules else None,
             free_slots_text=", ".join(s.label(tz) for s in slots) if slots else None,
+            knowledge_text=knowledge.snippets_to_text(snippets),
+            knowledge_snippet=snippets[0].content[:350].strip() if snippets else None,
         )
+        if snippets:
+            decision.extra["knowledge"] = [s.title for s in snippets]
 
         await _apply_actions(tenant, patient, decision, phone, text, upcoming, services)
 

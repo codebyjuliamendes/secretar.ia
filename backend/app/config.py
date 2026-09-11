@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    gemini_embedding_model: str = "gemini-embedding-001"
     ai_timeout_seconds: float = 20.0
     ai_max_output_tokens: int = 512
 

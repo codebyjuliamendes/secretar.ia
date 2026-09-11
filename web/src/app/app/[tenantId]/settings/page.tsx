@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings";
-import { Alert, Badge, Button, Card, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { GoogleCalendarStatus, TenantSettings, WhatsAppStatus } from "@/lib/types";
+import type { GoogleCalendarStatus, KnowledgeDocument, TenantSettings, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -27,6 +27,7 @@ export default function SettingsPage() {
             <AssistantForm settings={data} canManage={canManage} onSaved={async () => { await Promise.all([refetch(), reload()]); }} />
             <ServicesCard canManage={canManage} />
             <AvailabilityCard canManage={canManage} />
+            <KnowledgeCard canManage={canManage} />
             <UpsellForm settings={data} canManage={canManage} onSaved={refetch} />
           </div>
           <div className="space-y-4">
@@ -36,6 +37,7 @@ export default function SettingsPage() {
               <ul className="list-disc space-y-1 pl-4 text-sm text-muted">
                 <li>O prompt define a personalidade e as regras da clínica.</li>
                 <li>Serviços e preços são a única fonte de valores; a IA não inventa preços.</li>
+                <li>A base de conhecimento responde dúvidas sobre preparo, políticas e pagamento; fora dela, a IA encaminha à equipe.</li>
                 <li>Pedidos de agendamento ficam pendentes até a confirmação da equipe.</li>
                 <li>Quando o paciente pede uma pessoa, a equipe é avisada na inbox.</li>
                 <li>Com o Google Calendar conectado, cada agendamento vira um evento na agenda da clínica.</li>
@@ -302,6 +304,107 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
               <p className="text-xs text-muted">Peça a um gerente ou proprietário para conectar.</p>
             )}
           </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function KnowledgeCard({ canManage }: { canManage: boolean }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const { data, error, loading, refetch } = useQuery(() => api.get<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge`), [tenant.id]);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ title: string; content: string }[] | null>(null);
+
+  async function add() {
+    setSaving(true);
+    try {
+      await api.post(`clinic/${tenant.id}/knowledge`, { title, content });
+      setTitle("");
+      setContent("");
+      toast.success("Documento adicionado à base de conhecimento.");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setDeleting(id);
+    try {
+      await api.delete(`clinic/${tenant.id}/knowledge/${id}`);
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  async function search() {
+    try {
+      const r = await api.post<{ items: { title: string; content: string }[] }>(`clinic/${tenant.id}/knowledge/search`, undefined, { q: query });
+      setResults(r.items);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  return (
+    <Card title="Base de conhecimento" action={data ? <Badge tone={data.items.length ? "success" : "neutral"}>{data.items.length} documento(s)</Badge> : undefined}>
+      <div className="space-y-4">
+        <p className="text-sm text-muted">Cole aqui textos que a assistente pode usar para responder dúvidas: preparo para procedimentos, políticas de cancelamento, formas de pagamento, endereço e estacionamento, perguntas frequentes. Ela cita apenas o que estiver aqui.</p>
+        {error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : loading || !data ? (
+          <Skeleton className="h-24" />
+        ) : data.items.length === 0 ? (
+          <EmptyState title="Nenhum documento ainda" description="Comece com as perguntas que a recepção mais recebe." />
+        ) : (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {data.items.map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{d.title}</p>
+                  <p className="text-xs text-muted">{d.chars.toLocaleString("pt-BR")} caracteres · {d.chunkCount} trecho(s) · {d.embedded ? "busca semântica" : "busca por palavras"}</p>
+                </div>
+                {canManage && <Button variant="ghost" size="sm" loading={deleting === d.id} onClick={() => remove(d.id)}>Remover</Button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {canManage && (
+          <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">
+            <Field label="Título" htmlFor="kb-title" required><Input id="kb-title" placeholder="Ex.: Preparo para peeling" value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+            <Field label="Conteúdo" htmlFor="kb-content" required hint="Texto livre, até 30 mil caracteres. Separe assuntos em parágrafos.">
+              <Textarea id="kb-content" rows={5} value={content} onChange={(e) => setContent(e.target.value)} />
+            </Field>
+            <Button onClick={add} loading={saving} disabled={title.trim().length < 2 || content.trim().length < 20}>Adicionar documento</Button>
+          </fieldset>
+        )}
+        {data && data.items.length > 0 && (
+          <div className="space-y-2">
+            <Field label="Testar: o que a assistente encontraria para..." htmlFor="kb-q">
+              <div className="flex gap-2">
+                <Input id="kb-q" placeholder="Ex.: aceitam cartão?" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && query.trim().length >= 2) void search(); }} />
+                <Button variant="secondary" onClick={search} disabled={query.trim().length < 2}>Buscar</Button>
+              </div>
+            </Field>
+            {results && (results.length === 0 ? <p className="text-sm text-muted">Nenhum trecho relevante; a assistente encaminharia à equipe.</p> : (
+              <ul className="space-y-2">
+                {results.map((r, i) => (
+                  <li key={i} className="rounded-lg bg-surface-2 p-3 text-sm"><p className="text-xs font-medium text-muted">{r.title}</p><p className="mt-1 whitespace-pre-wrap">{r.content}</p></li>
+                ))}
+              </ul>
+            ))}
+          </div>
         )}
       </div>
     </Card>

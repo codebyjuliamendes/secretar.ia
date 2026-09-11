@@ -115,3 +115,21 @@ em memória permite testar o fluxo inteiro sem rede.
 **Consequências.** Sentido único (Secretar.ia → Google): eventos criados diretamente no Google não bloqueiam
 horários na IA. Leitura bidirecional (watch/push do Google) fica como evolução, reaproveitando a conexão.
 Dependência nova: `cryptography` (Fernet).
+
+## ADR-012 — Base de conhecimento com pgvector e fallback para busca textual
+
+**Contexto.** A IA só conhecia prompt, catálogo e horários; dúvidas sobre preparo, políticas e pagamento
+viravam "vou confirmar com a equipe" ou, pior, invenção. ADR-005 deixou RAG como evolução explícita.
+**Decisão.** Documentos livres por clínica (`KnowledgeDocument`, até 50 por tenant e 30 mil caracteres cada)
+são partidos em trechos de ~800 caracteres por parágrafo (`KnowledgeChunk`) com embedding Gemini
+(`gemini-embedding-001`, 768 dims) em coluna `vector(768)` do pgvector, no mesmo Postgres (sem serviço de
+busca à parte). A cada mensagem, os 4 trechos mais próximos (cosseno) entram no prompt em um bloco próprio,
+com instrução de usá-los como única fonte para dúvidas e de encaminhar à equipe o que não estiver ali. Sem
+chave de IA ou em falha de embedding, os trechos ficam sem vetor e a recuperação usa `to_tsvector('portuguese')`
+com termos em OR ranqueados por `ts_rank`; a resposta por regras também cita o melhor trecho. A coluna é
+`Unsupported` no Prisma: escrita e busca via SQL bruto em `services/knowledge.py`. Sem índice HNSW/IVFFlat
+por ora: o volume por clínica é pequeno e o filtro por `tenantId` vem antes; um índice fora do datamodel
+quebraria a verificação de drift do CI.
+**Consequências.** Postgres precisa da extensão `vector` (imagem `pgvector/pgvector:pg16` no compose e no CI;
+Neon/Supabase já oferecem). Reindexação manual disponível para quando a chave de IA for configurada depois.
+Ingestão de PDF/URL e sugestão automática de documentos ficam como evolução.

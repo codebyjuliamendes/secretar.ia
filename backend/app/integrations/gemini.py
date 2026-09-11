@@ -78,6 +78,37 @@ class GeminiClient:
         }
         return await self._generate(body)
 
+    async def embed(self, texts: list[str], *, model: str, task_type: str, dims: int) -> list[list[float]]:
+        """Embeddings em lote (batchEmbedContents). Mantém a ordem de `texts`."""
+        if not texts:
+            return []
+        body = {
+            "requests": [
+                {
+                    "model": f"models/{model}",
+                    "content": {"parts": [{"text": t}]},
+                    "taskType": task_type,
+                    "outputDimensionality": dims,
+                }
+                for t in texts
+            ]
+        }
+        url = f"{_BASE}/{model}:batchEmbedContents"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(url, params={"key": self._key}, json=body)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise AIProviderError(f"Gemini indisponível: {exc.__class__.__name__}") from exc
+        if resp.status_code != 200:
+            raise AIProviderError(f"Gemini embeddings respondeu {resp.status_code}")
+        try:
+            vectors = [e["values"] for e in resp.json()["embeddings"]]
+        except (KeyError, TypeError) as exc:
+            raise AIProviderError("Resposta inválida do Gemini (embeddings)") from exc
+        if len(vectors) != len(texts):
+            raise AIProviderError("Gemini devolveu número inesperado de embeddings")
+        return vectors
+
     async def _generate(self, body: dict) -> AIResult:
         url = f"{_BASE}/{self.model}:generateContent"
         try:

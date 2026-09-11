@@ -55,7 +55,7 @@ calendário semanal (`/app/{tenantId}/calendar`) e editores de serviços e horá
 | Camada | Tecnologia |
 | --- | --- |
 | Backend | Python 3.12, FastAPI, Prisma Client Python, PyJWT, bcrypt, httpx, aiosmtplib |
-| Banco | PostgreSQL 16 (migrations Prisma) |
+| Banco | PostgreSQL 16 + pgvector (migrations Prisma) |
 | Frontend | Next.js 16 (App Router), React 19, Tailwind CSS 4, TypeScript |
 | IA | Google Gemini (REST) com fallback determinístico por regras |
 | WhatsApp | Evolution API (QR Code, envio, webhook) |
@@ -115,7 +115,7 @@ npm run dev                     # http://localhost:4000
 > Windows com nome de usuário acentuado: prefixe os comandos `prisma` e `pytest` com `PYTHONUTF8=1`
 > (o gerador do Prisma lê o caminho via stdin e falha com mojibake sem isso).
 
-Sem `GEMINI_API_KEY`, a IA opera em **modo degradado por regras** (intenção por palavras-chave e respostas
+Sem `GEMINI_API_KEY`, a IA opera em **modo degradado por regras** (e a base de conhecimento usa busca textual do Postgres em vez de embeddings) (intenção por palavras-chave e respostas
 com os dados da clínica); isso é registrado em `ExecutionLog.error = ai_not_configured`. Sem
 `EVOLUTION_API_URL` em desenvolvimento, mensagens são apenas logadas (provider console). Em produção, ambas
 as ausências são erros explícitos, nunca sucesso silencioso.
@@ -133,7 +133,7 @@ Backend (`backend/.env.example`):
 | `FRONTEND_URL` / `PUBLIC_API_URL` | sim | links de e-mail e URL do webhook da Evolution |
 | `WHATSAPP_APP_SECRET` | sim | HMAC do webhook normalizado |
 | `EVOLUTION_API_URL` / `EVOLUTION_API_KEY` / `EVOLUTION_WEBHOOK_TOKEN` | para WhatsApp real | Evolution API |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | para IA real | Google Gemini |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_EMBEDDING_MODEL` | para IA real | Google Gemini (respostas, áudio/imagem e embeddings da base de conhecimento) |
 | `STRIPE_WEBHOOK_SECRET` | para billing | assinatura dos webhooks Stripe |
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` | para checkout | chave secreta e price ids recorrentes; sem chave em development o checkout usa o provider console |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | para Google Calendar | OAuth por clínica; redirect URI `{PUBLIC_API_URL}/api/integrations/google/callback`; sem credenciais em development usa provider console |
@@ -198,6 +198,7 @@ falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de age
 | Gemini | `integrations/gemini.py`, `services/ai.py`, `services/media.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras; áudio (transcrição) e imagem (descrição) do paciente via entrada multimodal |
 | Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
 | Google Calendar | `integrations/google_calendar.py`, `services/calendar_sync.py`, `api/integrations.py` | OAuth por clínica (state assinado, refresh token cifrado); cada criação/remarcação/confirmação/cancelamento enfileira `sync-calendar`, que cria/atualiza/apaga o evento e guarda `externalEventId`; credencial inválida desliga a sincronização e avisa na inbox |
+| Base de conhecimento (RAG) | `services/knowledge.py` | documentos livres da clínica → trechos → embeddings Gemini em pgvector (768 dims); recuperação vetorial com fallback para texto completo em português; trechos entram no prompt como fonte de verdade |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 
 Configuração do webhook na Evolution: `POST {PUBLIC_API_URL}/api/webhooks/evolution/{EVOLUTION_WEBHOOK_TOKEN}`

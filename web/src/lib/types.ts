@@ -208,6 +208,16 @@ export interface Billing {
   plans: PlanLimits[];
 }
 
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  chars: number;
+  chunkCount: number;
+  embedded: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GoogleCalendarStatus {
   available: boolean;
   connected: boolean;

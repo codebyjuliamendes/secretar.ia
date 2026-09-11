@@ -21,7 +21,13 @@ async def test_postgres_rate_limiter_counts_per_scope_and_key(client, clean_db):
     assert await clean_db.ratelimitbucket.count(where={"scope": "test.scope"}) >= 1
 
 
-async def test_login_is_rate_limited_per_ip_and_email(client, clean_db):
+async def test_login_is_rate_limited_per_ip_and_email(client, clean_db, monkeypatch):
+    # Janela fixa: congela o bucket para o teste não atravessar a virada do minuto.
+    from datetime import UTC, datetime
+
+    from app.security import ratelimit
+
+    monkeypatch.setattr(ratelimit, "window_start", lambda now_ts, window_seconds: datetime(2030, 1, 1, tzinfo=UTC))
     reg = await register_user(client)
     bad = {"email": reg["email"], "password": "senha-errada-123"}
     statuses = [(await client.post("/api/auth/login", json=bad)).status_code for _ in range(10)]
