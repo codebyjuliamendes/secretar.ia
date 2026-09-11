@@ -33,11 +33,7 @@ jobs:
     env:
       APP_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/secretaria_test?schema=public
-      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret-0123
-      WHATSAPP_APP_SECRET: ci-whatsapp-secret
-      EVOLUTION_WEBHOOK_TOKEN: ci-evolution-token
-      STRIPE_WEBHOOK_SECRET: whsec_ci
-      CRON_SECRET: ci-cron-secret
+      # Segredos de teste vêm de tests/conftest.py (os testes assinam webhooks com esses literais).
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

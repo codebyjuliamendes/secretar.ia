@@ -16,11 +16,13 @@ import pytest
 os.environ.setdefault("APP_ENV", "test")
 # Banco de TESTE separado do de desenvolvimento: a suíte TRUNCA todas as tabelas.
 os.environ.setdefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/secretaria_test?schema=public")
-os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-0123456789")
-os.environ.setdefault("WHATSAPP_APP_SECRET", "test-whatsapp-secret")
-os.environ.setdefault("EVOLUTION_WEBHOOK_TOKEN", "test-evolution-token")
-os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_test")
-os.environ.setdefault("CRON_SECRET", "test-cron-secret")
+# Segredos FIXOS: os testes assinam webhooks e chamam o cron com estes literais, então valores vindos
+# do ambiente (CI, shell do dev) não podem sobrescrevê-los.
+os.environ["JWT_SECRET"] = "test-secret-test-secret-test-secret-0123456789"
+os.environ["WHATSAPP_APP_SECRET"] = "test-whatsapp-secret"
+os.environ["EVOLUTION_WEBHOOK_TOKEN"] = "test-evolution-token"
+os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
+os.environ["CRON_SECRET"] = "test-cron-secret"
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:4000")
 os.environ["GEMINI_API_KEY"] = ""  # testes nunca chamam provedor externo
 os.environ["EVOLUTION_API_URL"] = ""
