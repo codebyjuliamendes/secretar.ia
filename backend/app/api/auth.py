@@ -3,27 +3,28 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, Request, status
 from pydantic import BaseModel, EmailStr, Field
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.deps import CurrentUser, client_ip, current_user, get_settings_dep
 from app.errors import RateLimitedError
-from app.security.ratelimit import SlidingWindowRateLimiter
+from app.security.ratelimit import PostgresRateLimiter
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_login_limiter = SlidingWindowRateLimiter(limit=10, window_seconds=60)
-_register_limiter = SlidingWindowRateLimiter(limit=20, window_seconds=3600)
-_forgot_limiter = SlidingWindowRateLimiter(limit=5, window_seconds=600)
+# Persistidos no Postgres: valem para todas as réplicas (ADR-008).
+_login_limiter = PostgresRateLimiter("auth.login", limit=get_settings().login_rate_limit_per_minute, window_seconds=60)
+_register_limiter = PostgresRateLimiter("auth.register", limit=20, window_seconds=3600)
+_forgot_limiter = PostgresRateLimiter("auth.forgot", limit=5, window_seconds=600)
 
 
-def reset_rate_limiters() -> None:
+async def reset_rate_limiters() -> None:
     """Usado em testes para isolar cenários; sem efeito em produção."""
     for limiter in (_login_limiter, _register_limiter, _forgot_limiter):
-        limiter.reset()
+        await limiter.reset()
 
 
-def _limit(limiter: SlidingWindowRateLimiter, key: str | None) -> None:
-    if not limiter.allow(key or "unknown"):
+async def _limit(limiter: PostgresRateLimiter, key: str | None) -> None:
+    if not await limiter.allow(key or "unknown"):
         raise RateLimitedError("Muitas tentativas. Aguarde um instante e tente novamente.")
 
 
@@ -74,7 +75,7 @@ async def register(
     user_agent: str | None = Header(default=None),
 ):
     ip = client_ip(request)
-    _limit(_register_limiter, ip)
+    await _limit(_register_limiter, ip)
     return await auth_service.register(
         settings,
         name=data.name,
@@ -95,7 +96,7 @@ async def login(
     user_agent: str | None = Header(default=None),
 ):
     ip = client_ip(request)
-    _limit(_login_limiter, f"{ip}:{data.email.lower()}")
+    await _limit(_login_limiter, f"{ip}:{data.email.lower()}")
     return await auth_service.login(settings, email=data.email, password=data.password, user_agent=user_agent, ip=ip)
 
 
@@ -148,7 +149,7 @@ async def resend_verification(
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def forgot_password(data: EmailIn, request: Request, settings: Settings = Depends(get_settings_dep)):
-    _limit(_forgot_limiter, client_ip(request))
+    await _limit(_forgot_limiter, client_ip(request))
     await auth_service.forgot_password(settings, data.email)
     return {"sent": True}
 

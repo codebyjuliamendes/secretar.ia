@@ -361,6 +361,18 @@ model UsageCounter {
   @@unique([tenantId, period, metric])
 }
 
+// Rate limit distribuído (janela fixa por bucket). Consistente entre réplicas sem Redis; buckets antigos
+// são removidos pela manutenção diária.
+model RateLimitBucket {
+  scope       String
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@id([scope, key, windowStart])
+  @@index([windowStart])
+}
+
 model UpsellDispatch {
   id            String      @id @default(cuid())
   tenantId      String

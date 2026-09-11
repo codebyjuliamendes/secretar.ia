@@ -59,3 +59,15 @@ ficam como evolução explícita (ver pendências no relatório de entrega).
 **Decisão.** WhatsApp, e-mail e IA têm um único ponto de acesso em `app/integrations/`. Em desenvolvimento,
 sem credenciais, usam providers `console` (logam); em `staging`/`production` a ausência de credenciais é erro.
 **Consequências.** Testes rodam sem rede; produção nunca "finge" sucesso.
+
+## ADR-008 — Rate limit persistido no Postgres
+
+**Contexto.** O limitador de login/cadastro/recuperação de senha era em memória: cada réplica tinha seu
+próprio contador, o que multiplicava o limite efetivo e o zerava a cada deploy.
+**Decisão.** Contadores por `(escopo, chave, janela fixa)` na tabela `RateLimitBucket`, incrementados com
+`INSERT ... ON CONFLICT` atômico. Sem Redis, mantendo o Postgres como única dependência (coerente com
+ADR-003). Se o banco falhar, o limitador abre (fail-open) e registra erro: indisponibilidade do banco já
+impede o login e nunca deve virar bloqueio silencioso. Buckets antigos são apagados na manutenção diária.
+**Consequências.** Limite consistente entre réplicas e entre deploys; uma escrita extra por tentativa de
+login (irrelevante para o volume). Janela fixa em vez de deslizante: no pior caso permite até 2× o limite
+na virada da janela, aceitável para proteção de força bruta.

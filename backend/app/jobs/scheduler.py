@@ -13,6 +13,7 @@ from app.db import db
 from app.jobs.queue import enqueue
 from app.jobs.tasks import UPSELL_CAMPAIGN
 from app.logging import get_logger
+from app.security.ratelimit import purge_expired_buckets
 
 log = get_logger("jobs.scheduler")
 
@@ -39,8 +40,10 @@ async def run_daily_maintenance() -> dict:
     removed_jobs = await db.job.delete_many(
         where={"status": {"in": ["COMPLETED"]}, "updatedAt": {"lt": now - timedelta(days=7)}}
     )
+    removed_buckets = await purge_expired_buckets()
     result = {
         "processedMessagesRemoved": removed_msgs,
+        "rateLimitBucketsRemoved": removed_buckets,
         "refreshTokensRemoved": removed_tokens,
         "verificationTokensRemoved": removed_verif,
         "jobsRemoved": removed_jobs,

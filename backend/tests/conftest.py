@@ -34,6 +34,7 @@ from app.config import get_settings  # noqa: E402
 get_settings.cache_clear()
 
 TABLES = [
+    "RateLimitBucket",
     "UpsellDispatch",
     "UsageCounter",
     "AuditLog",
@@ -96,11 +97,9 @@ async def clean_db(database):
 async def client(clean_db):
     from httpx import ASGITransport, AsyncClient
 
-    from app.api.auth import reset_rate_limiters
     from app.main import create_app
 
-    reset_rate_limiters()
-    app = create_app(run_background=False)
+    app = create_app(run_background=False)  # RateLimitBucket é truncada por clean_db
     # Sem lifespan: a conexão do banco é gerida pela fixture de sessão.
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
