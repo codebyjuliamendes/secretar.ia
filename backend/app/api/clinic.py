@@ -13,6 +13,7 @@ from app.deps import TenantContext, client_ip, get_settings_dep, require_permiss
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
 from app.services import audit, scheduling
+from app.services import billing as billing_service
 from app.services import dashboard as dashboard_service
 from app.services import notifications as notif_service
 from app.services import patients as patient_service
@@ -88,8 +89,45 @@ async def update_settings(
 
 
 @router.get("/billing")
-async def billing(ctx: TenantContext = Depends(require_permission(Permission.BILLING_VIEW))):
-    return await tenant_service.billing_view(ctx.tenant_id)
+async def billing(
+    ctx: TenantContext = Depends(require_permission(Permission.BILLING_VIEW)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await billing_service.billing_overview(settings, ctx.tenant)
+
+
+class CheckoutIn(BaseModel):
+    plan: Literal["BASIC", "PRO"]
+
+
+@router.post("/billing/checkout")
+async def billing_checkout(
+    data: CheckoutIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.BILLING_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Cria uma sessão de checkout no gateway; o plano só muda quando o webhook confirmar o pagamento."""
+    from app.db import db
+
+    user = await db.user.find_unique(where={"id": ctx.user.id})
+    return await billing_service.create_checkout(
+        settings,
+        ctx.tenant,
+        plan=data.plan,
+        user_email=user.email if user else None,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.post("/billing/portal")
+async def billing_portal(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.BILLING_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await billing_service.create_portal(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
 
 
 # ------------------------------- WhatsApp --------------------------------

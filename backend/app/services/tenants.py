@@ -9,7 +9,6 @@ from app.db import db
 from app.domain.plans import Plan, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
-from app.services.usage import usage_summary
 from generated_prisma import Json
 from generated_prisma.errors import UniqueViolationError
 
@@ -80,18 +79,6 @@ async def update_settings(tenant_id: str, data: dict[str, Any], *, actor_user_id
         ip=ip,
     )
     return tenant_settings_view(updated)
-
-
-async def billing_view(tenant_id: str) -> dict:
-    tenant = await get_tenant_or_404(tenant_id)
-    return {
-        "status": str(tenant.status),
-        "plan": str(tenant.plan),
-        "trialEndsAt": tenant.trialEndsAt.isoformat() if tenant.trialEndsAt else None,
-        "subscriptionId": tenant.subscriptionId,
-        "usage": await usage_summary(tenant_id, str(tenant.plan)),
-        "plans": [plan_public_view(p) for p in Plan],
-    }
 
 
 # ----------------------------- SUPER ADMIN -----------------------------

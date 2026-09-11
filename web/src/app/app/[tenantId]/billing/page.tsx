@@ -1,9 +1,11 @@
 "use client";
 
-import { Alert, Badge, Card, ErrorState, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
-import { api } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { Alert, Badge, Button, Card, ErrorState, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
+import { useToast } from "@/components/ui/toast";
+import { api, errorMessage } from "@/lib/api";
 import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel } from "@/lib/format";
-import type { Billing } from "@/lib/types";
+import type { Billing, Plan } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -20,13 +22,61 @@ function UsageBar({ label, used, limit }: { label: string; used: number; limit: 
   );
 }
 
+type CheckoutResult = "success" | "cancel" | "console" | null;
+
+/** Lê ?checkout=... da URL após o retorno do gateway e limpa a query para não repetir o aviso ao recarregar. */
+function useCheckoutResult(): CheckoutResult {
+  const [result, setResult] = useState<CheckoutResult>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get("checkout") ?? (params.get("portal") === "console" ? "console" : null);
+    if (value === "success" || value === "cancel" || value === "console") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setResult(value);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+  return result;
+}
+
 export default function BillingPage() {
-  const { tenant } = useTenant();
+  const { tenant, reload } = useTenant();
+  const toast = useToast();
+  const canManage = tenant.role === "OWNER";
+  const checkoutResult = useCheckoutResult();
   const { data, error, loading, refetch } = useQuery(() => api.get<Billing>(`clinic/${tenant.id}/billing`), [tenant.id]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // Após um checkout concluído, o webhook pode levar alguns segundos: recarrega uma vez depois.
+  useEffect(() => {
+    if (checkoutResult !== "success") return;
+    const t = setTimeout(() => { void refetch(); void reload(); }, 4000);
+    return () => clearTimeout(t);
+  }, [checkoutResult, refetch, reload]);
+
+  async function go(path: "checkout" | "portal", plan?: Plan) {
+    setBusy(plan ?? path);
+    try {
+      const r = await api.post<{ url: string }>(`clinic/${tenant.id}/billing/${path}`, plan ? { plan } : undefined);
+      window.location.assign(r.url);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setBusy(null);
+    }
+  }
+
+  const hasSubscription = !!data?.subscriptionId && (data.status === "ACTIVE" || data.status === "PAST_DUE");
 
   return (
     <>
-      <PageHeader title="Plano & uso" description="Consumo do mês e limites do seu plano. Os limites são aplicados pelo servidor." />
+      <PageHeader
+        title="Plano & uso"
+        description="Consumo do mês e limites do seu plano. Os limites são aplicados pelo servidor."
+        action={data?.hasCustomer && canManage ? <Button variant="secondary" loading={busy === "portal"} onClick={() => go("portal")}>Gerenciar assinatura</Button> : undefined}
+      />
+      {checkoutResult === "success" && <div className="mb-4"><Alert tone="success" title="Pagamento recebido">Sua assinatura está sendo ativada. O plano é atualizado automaticamente assim que o gateway confirmar.</Alert></div>}
+      {checkoutResult === "cancel" && <div className="mb-4"><Alert tone="info">Checkout cancelado. Nenhuma cobrança foi feita.</Alert></div>}
+      {checkoutResult === "console" && <div className="mb-4"><Alert tone="warning">Ambiente de desenvolvimento: o gateway de pagamento não está configurado, então nada foi cobrado.</Alert></div>}
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
       ) : loading || !data ? (
@@ -39,11 +89,19 @@ export default function BillingPage() {
               <div><dt className="text-muted">{data.status === "TRIAL" ? "Teste termina em" : "Período"}</dt><dd className="font-medium">{data.status === "TRIAL" ? formatDate(data.trialEndsAt) : data.usage.period}</dd></div>
               <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : "Não iniciada"}</dd></div>
             </dl>
-            {data.status === "PAST_DUE" && <div className="mt-4"><Alert tone="danger">Há um pagamento pendente. Regularize para reativar o atendimento automático.</Alert></div>}
-            {!data.subscriptionId && (
+            {data.status === "PAST_DUE" && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <Alert tone="danger">Há um pagamento pendente. Regularize para reativar o atendimento automático.</Alert>
+                {canManage && data.hasCustomer && <Button variant="secondary" loading={busy === "portal"} onClick={() => go("portal")}>Atualizar pagamento</Button>}
+              </div>
+            )}
+            {!data.checkoutEnabled && !data.subscriptionId && (
               <div className="mt-4">
                 <Alert tone="info">Para contratar ou alterar o plano, fale com nossa equipe. A cobrança é feita via Stripe e o plano é atualizado automaticamente após a confirmação do pagamento.</Alert>
               </div>
+            )}
+            {data.checkoutEnabled && !canManage && !data.subscriptionId && (
+              <div className="mt-4"><Alert tone="info">Apenas o proprietário da clínica pode contratar ou alterar o plano.</Alert></div>
             )}
           </Card>
           <Card title={`Uso em ${data.usage.period}`}>
@@ -54,18 +112,35 @@ export default function BillingPage() {
             </div>
           </Card>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {data.plans.map((p) => (
-              <div key={p.plan} className={cx("rounded-xl border bg-surface p-5", p.plan === data.plan ? "border-primary" : "border-border")}>
-                <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{p.plan === data.plan && <Badge tone="primary">atual</Badge>}</div>
-                <p className="mt-2 text-2xl font-semibold">{p.priceCentsMonth ? brl(p.priceCentsMonth) : p.plan === "FREE" ? "R$ 0" : "Sob consulta"}<span className="text-sm font-normal text-muted">/mês</span></p>
-                <ul className="mt-3 space-y-1 text-sm text-muted">
-                  <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
-                  <li>{limitLabel(p.maxPatients)} pacientes</li>
-                  <li>{limitLabel(p.maxMembers)} membros</li>
-                  <li>{p.upsellCampaigns ? "Campanha de retorno" : "Sem campanha de retorno"}</li>
-                </ul>
-              </div>
-            ))}
+            {data.plans.map((p) => {
+              const current = p.plan === data.plan;
+              const purchasable = data.purchasablePlans.includes(p.plan);
+              const showAction = canManage && data.checkoutEnabled && !current && (purchasable || (hasSubscription && p.plan !== "FREE"));
+              return (
+                <div key={p.plan} className={cx("flex flex-col rounded-xl border bg-surface p-5", current ? "border-primary" : "border-border")}>
+                  <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{current && <Badge tone="primary">atual</Badge>}</div>
+                  <p className="mt-2 text-2xl font-semibold">{p.priceCentsMonth ? brl(p.priceCentsMonth) : p.plan === "FREE" ? "R$ 0" : "Sob consulta"}<span className="text-sm font-normal text-muted">/mês</span></p>
+                  <ul className="mt-3 space-y-1 text-sm text-muted">
+                    <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
+                    <li>{limitLabel(p.maxPatients)} pacientes</li>
+                    <li>{limitLabel(p.maxMembers)} membros</li>
+                    <li>{p.upsellCampaigns ? "Campanha de retorno" : "Sem campanha de retorno"}</li>
+                  </ul>
+                  {showAction && (
+                    <div className="mt-4 pt-1">
+                      {hasSubscription ? (
+                        <Button variant="secondary" size="sm" className="w-full" loading={busy === "portal"} onClick={() => go("portal")}>Mudar para este plano</Button>
+                      ) : purchasable ? (
+                        <Button size="sm" className="w-full" loading={busy === p.plan} onClick={() => go("checkout", p.plan)}>Assinar {PLAN_LABEL[p.plan]}</Button>
+                      ) : null}
+                    </div>
+                  )}
+                  {p.plan === "ENTERPRISE" && !current && (
+                    <p className="mt-4 text-xs text-muted">Fale com nossa equipe para condições sob medida.</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

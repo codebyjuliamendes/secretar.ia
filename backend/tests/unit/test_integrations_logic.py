@@ -129,3 +129,45 @@ def test_system_prompt_contains_guardrails_and_rules_reply():
 
     assert "equipe" in rules_reply(tenant, Intent.HUMAN)
     assert "Botox" in rules_reply(tenant, Intent.INFO)
+
+
+def test_billing_extract_checkout_session_uses_client_reference_id():
+    event = {
+        "id": "evt_3",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "object": "checkout.session",
+                "id": "cs_1",
+                "subscription": "sub_3",
+                "customer": "cus_3",
+                "client_reference_id": "tenant-3",
+                "metadata": {"plan": "basic"},
+            }
+        },
+    }
+    info = _extract(event)
+    assert info["subscription_id"] == "sub_3" and info["tenant_id"] == "tenant-3" and info["plan"].value == "BASIC"
+
+
+def test_stripe_flatten_form_nested_and_lists():
+    from app.integrations.stripe import flatten_form
+
+    out = dict(
+        flatten_form(
+            {
+                "mode": "subscription",
+                "allow_promotion_codes": True,
+                "line_items": [{"price": "price_1", "quantity": 1}],
+                "subscription_data": {"metadata": {"tenantId": "t1"}},
+                "customer": None,
+            }
+        )
+    )
+    assert out == {
+        "mode": "subscription",
+        "allow_promotion_codes": "true",
+        "line_items[0][price]": "price_1",
+        "line_items[0][quantity]": "1",
+        "subscription_data[metadata][tenantId]": "t1",
+    }

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     ai_max_output_tokens: int = 512
 
     stripe_webhook_secret: str = ""
+    stripe_secret_key: str = ""
+    stripe_price_basic: str = ""  # price_... do plano BASIC no Stripe
+    stripe_price_pro: str = ""  # price_... do plano PRO no Stripe
     cron_secret: str = ""
 
     smtp_host: str = ""

@@ -71,3 +71,17 @@ impede o login e nunca deve virar bloqueio silencioso. Buckets antigos são apag
 **Consequências.** Limite consistente entre réplicas e entre deploys; uma escrita extra por tentativa de
 login (irrelevante para o volume). Janela fixa em vez de deslizante: no pior caso permite até 2× o limite
 na virada da janela, aceitável para proteção de força bruta.
+
+## ADR-009 — Checkout e portal do Stripe via REST, plano só muda pelo webhook
+
+**Contexto.** O billing só reagia a webhooks; contratar ou trocar de plano exigia contato manual.
+**Decisão.** `integrations/stripe.py` cria Checkout Sessions (assinatura, `client_reference_id` = tenant,
+metadata `tenantId`/`plan` na sessão e na assinatura) e sessões do Customer Portal, por REST com httpx (sem
+SDK, como as demais integrações). O plano do tenant **nunca** muda na resposta do checkout: só quando o
+webhook assinado confirmar (`checkout.session.completed`, `invoice.paid`, ...). Com assinatura ativa,
+mudanças de plano e pagamento pendente vão para o portal, evitando duas assinaturas para o mesmo tenant.
+Apenas `OWNER` (BILLING_MANAGE) pode iniciar checkout/portal. Sem chave em development, o provider console
+devolve a URL de retorno marcada `checkout=console`; em produção a ausência de chave é erro.
+**Consequências.** Fluxo self-service completo; a fonte de verdade continua sendo o webhook idempotente.
+Os price ids ficam em variáveis de ambiente (um por plano contratável: BASIC e PRO); ENTERPRISE segue
+negociado manualmente.

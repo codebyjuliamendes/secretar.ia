@@ -135,6 +135,7 @@ Backend (`backend/.env.example`):
 | `EVOLUTION_API_URL` / `EVOLUTION_API_KEY` / `EVOLUTION_WEBHOOK_TOKEN` | para WhatsApp real | Evolution API |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | para IA real | Google Gemini |
 | `STRIPE_WEBHOOK_SECRET` | para billing | assinatura dos webhooks Stripe |
+| `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` | para checkout | chave secreta e price ids recorrentes; sem chave em development o checkout usa o provider console |
 | `CRON_SECRET` | sim | `Authorization: Bearer` dos endpoints `/api/internal/cron/*` |
 | `SMTP_*` | para e-mail real | transacional (verificação, reset, convites) |
 | `SUPER_ADMIN_EMAIL` | não | promove este e-mail a SUPER_ADMIN na inicialização |
@@ -193,7 +194,7 @@ falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de age
 | --- | --- | --- |
 | Evolution API | `integrations/whatsapp.py` | criar instância + QR, estado da conexão, envio; timeouts; 429/5xx → retry na fila |
 | Gemini | `integrations/gemini.py`, `services/ai.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras |
-| Stripe | `api/webhooks.py`, `services/billing.py` | eventos de assinatura/fatura → status e plano do tenant (metadata `tenantId`/`plan`) |
+| Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 
 Configuração do webhook na Evolution: `POST {PUBLIC_API_URL}/api/webhooks/evolution/{EVOLUTION_WEBHOOK_TOKEN}`
@@ -209,6 +210,8 @@ Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
    `FOR UPDATE SKIP LOCKED` e o agendador usa advisory lock.
 3. Crie o primeiro admin: `python -m app.cli create-superadmin ...` (ou `SUPER_ADMIN_EMAIL`).
 4. Aponte o webhook do Stripe para `/api/webhooks/billing` e configure `STRIPE_WEBHOOK_SECRET`.
+   Para checkout online, crie dois preços recorrentes no Stripe (Básico e Pro), configure `STRIPE_SECRET_KEY`,
+   `STRIPE_PRICE_BASIC` e `STRIPE_PRICE_PRO`, e habilite o Customer Portal no dashboard do Stripe.
 5. Opcional: cron externo chamando `POST /api/internal/cron/daily` com `Authorization: Bearer $CRON_SECRET`
    (o agendador interno já roda às 12:00 UTC).
 

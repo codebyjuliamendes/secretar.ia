@@ -200,6 +200,9 @@ export interface Billing {
   plan: Plan;
   trialEndsAt: string | null;
   subscriptionId: string | null;
+  hasCustomer: boolean;
+  checkoutEnabled: boolean;
+  purchasablePlans: Plan[];
   usage: Usage;
   plans: PlanLimits[];
 }
