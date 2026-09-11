@@ -26,6 +26,7 @@ def test_parse_evolution_text_message():
         "text": "Oi, quero agendar",
         "push_name": "Amanda",
         "instance": "clinica-abc",
+        "message_key": {"remoteJid": "5581999998888@s.whatsapp.net", "fromMe": False, "id": "ABC123"},
     }
 
 
@@ -50,13 +51,40 @@ def test_parse_evolution_ignores_groups_own_messages_and_other_events():
         is None
     )
     assert parse_evolution_message({"event": "connection.update", "data": {}}) is None
+    sticker = parse_evolution_message(
+        {
+            **base,
+            "data": {"key": {"remoteJid": "1@s.whatsapp.net", "id": "9"}, "message": {"stickerMessage": {}}},
+        }
+    )
+    assert sticker and sticker["unsupported"] is True
+
+
+def test_parse_evolution_media_messages():
+    base = {"event": "messages.upsert", "instance": "x"}
     audio = parse_evolution_message(
         {
             **base,
-            "data": {"key": {"remoteJid": "1@s.whatsapp.net", "id": "9"}, "message": {"audioMessage": {}}},
+            "data": {
+                "key": {"remoteJid": "1@s.whatsapp.net", "id": "a1"},
+                "message": {"audioMessage": {"mimetype": "audio/ogg; codecs=opus", "seconds": 4}},
+            },
         }
     )
-    assert audio and audio["unsupported"] is True
+    assert audio["media"] == {"kind": "audio", "mimetype": "audio/ogg; codecs=opus", "caption": None}
+    assert audio["text"] == "" and audio["message_key"] == {"remoteJid": "1@s.whatsapp.net", "id": "a1"}
+    image = parse_evolution_message(
+        {
+            **base,
+            "data": {
+                "key": {"remoteJid": "1@s.whatsapp.net", "id": "i1"},
+                "message": {"imageMessage": {"mimetype": "image/jpeg", "caption": "meu exame"}},
+            },
+        }
+    )
+    assert (
+        image["media"]["kind"] == "image" and image["media"]["caption"] == "meu exame" and image["text"] == "meu exame"
+    )
 
 
 def test_parse_json_output_handles_fences_and_errors():

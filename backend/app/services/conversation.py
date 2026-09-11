@@ -14,6 +14,7 @@ from app.domain.plans import limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
+from app.services import media as media_service
 from app.services import notifications, scheduling
 from app.services.ai import AIDecision, AIService
 from app.services.tenants import is_tenant_operational
@@ -141,7 +142,10 @@ async def handle_inbound(
     message_id: str,
     push_name: str | None = None,
     source: str = "webhook",
+    media: media_service.MediaInput | None = None,
 ) -> InboundResult:
+    """`text` é a mensagem do paciente; com `media`, o texto é derivado (transcrição/descrição) e `text`
+    vira a legenda. Sem IA para ler a mídia, respondemos pedindo texto em vez de fingir compreensão."""
     token = tenant_id_var.set(tenant.id)
     started = time.perf_counter()
     try:
@@ -193,6 +197,46 @@ async def handle_inbound(
         elif push_name and not patient.name:
             patient = await db.patient.update(where={"id": patient.id}, data={"name": push_name.strip()[:120]})
 
+        media_text: media_service.MediaText | None = None
+        media_failed = False
+        if media is not None:
+            media_text = await media_service.media_to_text(settings, media)
+            if media_text is None:
+                media_failed = True
+            else:
+                text = media_text.text
+        if media_failed:
+            # Registra a tentativa e responde com clareza; não consome a IA de atendimento.
+            too_large = not media_service.size_ok(media)
+            reply = media_service.unsupported_reply(media.kind, too_large=too_large)
+            await db.message.create_many(
+                data=[
+                    {
+                        "tenantId": tenant.id,
+                        "phone": phone,
+                        "role": "USER",
+                        "content": f"[{media.kind}] {text}".strip(),
+                    },
+                    {"tenantId": tenant.id, "phone": phone, "role": "ASSISTANT", "content": reply},
+                ]
+            )
+            await db.executionlog.create(
+                data={
+                    "tenantId": tenant.id,
+                    "agent": "secretaria",
+                    "intent": Intent.INFO.value,
+                    "model": "rules",
+                    "input": f"[{media.kind}] {text}"[:4000],
+                    "output": reply,
+                    "error": "media_unreadable",
+                    "runTimeMs": int((time.perf_counter() - started) * 1000),
+                }
+            )
+            await increment(tenant.id, AI_MESSAGES)
+            await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
+            log.info("inbound_media_unreadable", kind=media.kind, source=source)
+            return InboundResult(status="processed", intent=Intent.INFO.value, reply=reply, degraded=True)
+
         history = await _history(tenant.id, phone)
         upcoming = await _upcoming(tenant.id, patient.id)
         services = await scheduling.list_services(tenant.id, only_active=True)
@@ -231,8 +275,12 @@ async def handle_inbound(
                 "input": text[:4000],
                 "output": decision.reply[:4000],
                 "error": decision.error,
-                "inputTokens": decision.input_tokens,
-                "outputTokens": decision.output_tokens,
+                "inputTokens": (decision.input_tokens or 0) + (media_text.input_tokens or 0)
+                if media_text
+                else decision.input_tokens,
+                "outputTokens": (decision.output_tokens or 0) + (media_text.output_tokens or 0)
+                if media_text
+                else decision.output_tokens,
                 "runTimeMs": int((time.perf_counter() - started) * 1000),
             }
         )

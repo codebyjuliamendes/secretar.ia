@@ -34,6 +34,12 @@ class ConnectionInfo:
     qr_code_base64: str | None = None
 
 
+@dataclass
+class MediaPayload:
+    data: bytes
+    mime_type: str
+
+
 class WhatsAppProvider:
     async def send_text(self, instance: str, phone: str, text: str) -> str: ...
 
@@ -42,6 +48,10 @@ class WhatsAppProvider:
     async def connection_state(self, instance: str) -> ConnectionInfo: ...
 
     async def logout_instance(self, instance: str) -> None: ...
+
+    async def download_media(self, instance: str, message_key: dict) -> MediaPayload | None:
+        """Baixa a mídia de uma mensagem. None quando o provider não tem acesso ao conteúdo."""
+        return None
 
 
 class ConsoleWhatsAppProvider(WhatsAppProvider):
@@ -132,6 +142,23 @@ class EvolutionWhatsAppProvider(WhatsAppProvider):
     async def logout_instance(self, instance: str) -> None:
         await self._request("DELETE", f"/instance/logout/{instance}")
 
+    async def download_media(self, instance: str, message_key: dict) -> MediaPayload | None:
+        data = await self._request(
+            "POST",
+            f"/chat/getBase64FromMediaMessage/{instance}",
+            {"message": {"key": message_key}, "convertToMp4": False},
+        )
+        b64 = data.get("base64")
+        if not b64:
+            return None
+        if isinstance(b64, str) and b64.startswith("data:"):
+            b64 = b64.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(b64)
+        except (ValueError, TypeError):
+            return None
+        return MediaPayload(data=raw, mime_type=str(data.get("mimetype") or "application/octet-stream"))
+
 
 def build_whatsapp_provider(settings: Settings) -> WhatsAppProvider:
     if settings.evolution_api_url and settings.evolution_api_key:
@@ -159,18 +186,23 @@ def parse_evolution_message(payload: dict) -> dict | None:
     if not remote_jid or remote_jid.endswith("@g.us"):  # ignora grupos
         return None
     message = data.get("message") or {}
-    text = (
-        message.get("conversation")
-        or (message.get("extendedTextMessage") or {}).get("text")
-        or (message.get("imageMessage") or {}).get("caption")
-        or ""
-    )
-    if not text:
-        return {"unsupported": True, "message_id": str(key.get("id") or ""), "remote_jid": remote_jid}
-    return {
+    text = message.get("conversation") or (message.get("extendedTextMessage") or {}).get("text") or ""
+    base = {
         "message_id": str(key.get("id") or ""),
         "remote_jid": remote_jid,
-        "text": str(text),
         "push_name": data.get("pushName"),
         "instance": payload.get("instance"),
+        "message_key": {k: key.get(k) for k in ("remoteJid", "fromMe", "id", "participant") if key.get(k) is not None},
     }
+    if text:
+        return {**base, "text": str(text)}
+    for field, kind in (("audioMessage", "audio"), ("imageMessage", "image")):
+        media = message.get(field)
+        if isinstance(media, dict):
+            caption = str(media.get("caption") or "").strip() or None
+            return {
+                **base,
+                "text": caption or "",
+                "media": {"kind": kind, "mimetype": str(media.get("mimetype") or ""), "caption": caption},
+            }
+    return {"unsupported": True, "message_id": base["message_id"], "remote_jid": remote_jid}

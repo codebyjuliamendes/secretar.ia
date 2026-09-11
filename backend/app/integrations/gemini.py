@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 
@@ -52,6 +53,32 @@ class GeminiClient:
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
             ],
         }
+        return await self._generate(body)
+
+    async def describe_media(
+        self, prompt: str, data: bytes, mime_type: str, *, max_output_tokens: int | None = None
+    ) -> AIResult:
+        """Entrada multimodal (áudio/imagem inline) → texto livre. Usado para transcrição e descrição."""
+        body = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type.split(";")[0].strip(),
+                                "data": base64.b64encode(data).decode(),
+                            }
+                        },
+                    ],
+                }
+            ],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": max_output_tokens or self._max_tokens},
+        }
+        return await self._generate(body)
+
+    async def _generate(self, body: dict) -> AIResult:
         url = f"{_BASE}/{self.model}:generateContent"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

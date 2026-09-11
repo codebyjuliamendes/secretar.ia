@@ -85,3 +85,18 @@ devolve a URL de retorno marcada `checkout=console`; em produção a ausência d
 **Consequências.** Fluxo self-service completo; a fonte de verdade continua sendo o webhook idempotente.
 Os price ids ficam em variáveis de ambiente (um por plano contratável: BASIC e PRO); ENTERPRISE segue
 negociado manualmente.
+
+## ADR-010 — Áudio e imagem via Gemini multimodal (sem Whisper/Vision separados)
+
+**Contexto.** Pacientes mandam áudio e foto com frequência; o webhook respondia `unsupported_message_type`
+e a mensagem morria em silêncio. A pendência falava em "Whisper" e "Vision" como serviços à parte.
+**Decisão.** Usar o próprio Gemini com entrada inline (`inlineData`): áudio → transcrição literal em
+pt-BR; imagem → descrição objetiva em até 3 frases, com transcrição de textos legíveis e proibição explícita
+de diagnóstico. O texto derivado entra no pipeline normal como mensagem do paciente, prefixado
+(`[Áudio do paciente, transcrito] ...`), e os tokens são somados no `ExecutionLog`. Mídia da Evolution é
+baixada via `getBase64FromMediaMessage`; o webhook normalizado aceita `mediaKind/mediaBase64/mediaMimeType`.
+Sem IA configurada, arquivo acima do limite ou falha do provedor, a resposta é honesta ("só consigo ler
+texto, pode escrever?") e registrada com `error=media_unreadable`; nunca fingimos ter entendido.
+**Consequências.** Um único provedor e uma única chave; sem custo fixo de serviços adicionais. Limites de
+16 MB (áudio) e 8 MB (imagem) por mensagem. Se for preciso trocar o provedor de transcrição, o ponto é
+`services/media.py::client_for`.

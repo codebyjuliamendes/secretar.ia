@@ -192,8 +192,8 @@ falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de age
 
 | Integração | Onde | Comportamento |
 | --- | --- | --- |
-| Evolution API | `integrations/whatsapp.py` | criar instância + QR, estado da conexão, envio; timeouts; 429/5xx → retry na fila |
-| Gemini | `integrations/gemini.py`, `services/ai.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras |
+| Evolution API | `integrations/whatsapp.py` | criar instância + QR, estado da conexão, envio, download de mídia (áudio/imagem); timeouts; 429/5xx → retry na fila |
+| Gemini | `integrations/gemini.py`, `services/ai.py`, `services/media.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras; áudio (transcrição) e imagem (descrição) do paciente via entrada multimodal |
 | Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 
@@ -228,6 +228,7 @@ Ambientes: use bancos e segredos distintos para `development`, `staging` e `prod
 | `Variáveis obrigatórias ausentes em production` | fail-fast de configuração | defina os segredos listados |
 | Paciente não recebe resposta | tenant `PAST_DUE`/trial vencido/quota | veja Inbox (notificação BILLING) e `ExecutionLog` |
 | `degraded: true` no webhook | `GEMINI_API_KEY` ausente ou Gemini indisponível | fallback por regras ativo; verifique a chave |
+| Paciente manda áudio/imagem e recebe "só consigo ler texto" | IA sem chave, arquivo acima do limite (16 MB áudio / 8 MB imagem) ou provider console sem acesso à mídia | configure `GEMINI_API_KEY` e a Evolution API; veja `error: media_unreadable` no ExecutionLog |
 | Jobs em `FAILED` | integração recusou (permanente) | Admin → Fila de tarefas → detalhe do erro → reprocessar |
 | `prisma generate` com `PermissionError`/mojibake no Windows | caminho com acento | `PYTHONUTF8=1` |
 | 401 em loop no frontend | cookies bloqueados ou `API_URL` errado | confira `.env.local` e `COOKIE_SECURE` |
