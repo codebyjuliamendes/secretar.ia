@@ -1,13 +1,17 @@
 FROM python:3.12-slim AS base
 
+# PRISMA_*: cache do Prisma (CLI Node + engines) dentro de /app para ficar acessivel ao usuario nao-root
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    PRISMA_HOME_DIR=/app/.prisma \
+    PRISMA_NODEENV_CACHE_DIR=/app/.prisma/.cache/prisma-python/nodeenv
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+# libatomic1: exigida pelo binario do Node que o Prisma Python baixa
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
