@@ -172,6 +172,7 @@ model Tenant {
   auditLogs         AuditLog[]
   usageCounters     UsageCounter[]
   upsellDispatches  UpsellDispatch[]
+  calendarConnection CalendarConnection?
 }
 
 model Patient {
@@ -239,6 +240,7 @@ model Appointment {
   priceCents Int?
   notes      String?
   source     String            @default("AI")
+  externalEventId String?     // id do evento no calendário externo (Google)
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
@@ -359,6 +361,24 @@ model UsageCounter {
   count    Int    @default(0)
 
   @@unique([tenantId, period, metric])
+}
+
+// Conexão OAuth da clínica com um calendário externo (Google). Tokens cifrados (Fernet) em repouso.
+model CalendarConnection {
+  id                   String    @id @default(cuid())
+  tenantId             String    @unique
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider             String    @default("google")
+  accountEmail         String?
+  calendarId           String    @default("primary")
+  refreshTokenEnc      String
+  accessTokenEnc       String?
+  accessTokenExpiresAt DateTime?
+  syncEnabled          Boolean   @default(true)
+  lastSyncAt           DateTime?
+  lastError            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 // Rate limit distribuído (janela fixa por bucket). Consistente entre réplicas sem Redis; buckets antigos

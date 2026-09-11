@@ -17,6 +17,7 @@ log = get_logger("jobs.tasks")
 SEND_WHATSAPP = "send-whatsapp"
 SEND_EMAIL = "send-email"
 UPSELL_CAMPAIGN = "upsell-campaign"
+SYNC_CALENDAR = "sync-calendar"
 
 
 @register_task(SEND_WHATSAPP)
@@ -61,3 +62,14 @@ async def upsell_campaign(payload: dict[str, Any]) -> None:
     tenant_id = payload.get("tenantId")
     result = await run_upsell_campaign(tenant_id=tenant_id)
     log.info("upsell_campaign_done", **result)
+
+
+@register_task(SYNC_CALENDAR)
+async def sync_calendar(payload: dict[str, Any]) -> None:
+    from app.services.calendar_sync import sync_appointment
+
+    tenant_id, appointment_id = payload.get("tenantId"), payload.get("appointmentId")
+    if not (tenant_id and appointment_id):
+        raise PermanentJobError("payload incompleto para sync-calendar")
+    result = await sync_appointment(get_settings(), tenant_id=tenant_id, appointment_id=appointment_id)
+    log.info("sync_calendar_done", appointment_id=appointment_id, result=result)

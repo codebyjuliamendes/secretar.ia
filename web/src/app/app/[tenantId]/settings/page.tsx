@@ -5,7 +5,7 @@ import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings
 import { Alert, Badge, Button, Card, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { TenantSettings, WhatsAppStatus } from "@/lib/types";
+import type { GoogleCalendarStatus, TenantSettings, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -31,12 +31,14 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-4">
             <WhatsAppCard canManage={canManage} />
+            <GoogleCalendarCard canManage={canManage} />
             <Card title="Como a IA usa estas informações">
               <ul className="list-disc space-y-1 pl-4 text-sm text-muted">
                 <li>O prompt define a personalidade e as regras da clínica.</li>
                 <li>Serviços e preços são a única fonte de valores; a IA não inventa preços.</li>
                 <li>Pedidos de agendamento ficam pendentes até a confirmação da equipe.</li>
                 <li>Quando o paciente pede uma pessoa, a equipe é avisada na inbox.</li>
+                <li>Com o Google Calendar conectado, cada agendamento vira um evento na agenda da clínica.</li>
               </ul>
             </Card>
           </div>
@@ -199,6 +201,103 @@ function WhatsAppCard({ canManage }: { canManage: boolean }) {
             <p className="text-sm text-muted">Conecte o número da clínica para a secretária virtual começar a atender.</p>
             {canManage ? (
               <Button loading={busy} onClick={() => act("connect")}>Gerar QR Code</Button>
+            ) : (
+              <p className="text-xs text-muted">Peça a um gerente ou proprietário para conectar.</p>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const { data, error, loading, refetch, setData } = useQuery(() => api.get<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google`), [tenant.id]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // Retorno do OAuth: ?google=connected|error&reason=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("google");
+    if (!result) return;
+    if (result === "connected") toast.success("Google Calendar conectado. Os agendamentos futuros serão sincronizados.");
+    else toast.error(`Não foi possível conectar o Google Calendar (${params.get("reason") ?? "erro"}).`);
+    window.history.replaceState(null, "", window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function connect() {
+    setBusy("connect");
+    try {
+      const r = await api.post<{ url: string }>(`clinic/${tenant.id}/integrations/google/connect`);
+      window.location.assign(r.url);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setBusy(null);
+    }
+  }
+
+  async function disconnect() {
+    setBusy("disconnect");
+    try {
+      const r = await api.post<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google/disconnect`);
+      setData({ ...r, available: data?.available ?? true });
+      toast.success("Google Calendar desconectado.");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resync() {
+    setBusy("sync");
+    try {
+      const r = await api.post<{ queued: number }>(`clinic/${tenant.id}/integrations/google/sync`);
+      toast.success(`${r.queued} agendamento(s) enviados para sincronização.`);
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const tone = !data ? undefined : data.connected && data.syncEnabled ? "success" : data.connected ? "warning" : "neutral";
+  const label = !data ? "" : data.connected && data.syncEnabled ? "Conectado" : data.connected ? "Atenção" : "Não conectado";
+
+  return (
+    <Card title="Google Calendar" action={data ? <Badge tone={tone}>{label}</Badge> : undefined}>
+      <div className="space-y-3">
+        {error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : loading || !data ? (
+          <Skeleton className="h-24" />
+        ) : !data.available ? (
+          <p className="text-sm text-muted">Integração não configurada neste ambiente. Fale com o suporte.</p>
+        ) : data.connected ? (
+          <>
+            <p className="text-sm text-muted">Agenda <span className="font-medium text-foreground">{data.accountEmail ?? "Google"}</span>. Agendamentos criados, remarcados, confirmados ou cancelados são refletidos automaticamente.</p>
+            {data.lastError && <Alert tone="warning">{data.syncEnabled ? data.lastError : `Sincronização pausada: ${data.lastError}. Reconecte para retomar.`}</Alert>}
+            {data.lastSyncAt && <p className="text-xs text-muted">Última sincronização: {new Date(data.lastSyncAt).toLocaleString("pt-BR")}</p>}
+            {canManage && (
+              <div className="flex flex-wrap gap-2">
+                {data.syncEnabled ? (
+                  <Button variant="secondary" size="sm" loading={busy === "sync"} onClick={resync}>Sincronizar agora</Button>
+                ) : (
+                  <Button size="sm" loading={busy === "connect"} onClick={connect}>Reconectar</Button>
+                )}
+                <Button variant="danger" size="sm" loading={busy === "disconnect"} onClick={disconnect}>Desconectar</Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted">Conecte a agenda Google da clínica para ver os agendamentos da Secretar.ia no calendário que a equipe já usa.</p>
+            {canManage ? (
+              <Button loading={busy === "connect"} onClick={connect}>Conectar Google Calendar</Button>
             ) : (
               <p className="text-xs text-muted">Peça a um gerente ou proprietário para conectar.</p>
             )}

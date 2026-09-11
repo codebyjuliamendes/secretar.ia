@@ -2,6 +2,7 @@
 
 uv run python -m app.cli create-superadmin --email admin@x.com --password 'S3nha-forte' --name "Admin"
 uv run python -m app.cli seed-demo          # dados de demonstração (apenas development/test)
+uv run python -m app.cli gen-key            # chave Fernet para TOKEN_ENCRYPTION_KEY
 """
 
 from __future__ import annotations
@@ -121,11 +122,16 @@ def main() -> None:
     p.add_argument("--password", required=True)
     p.add_argument("--name", default="Administrador")
     sub.add_parser("seed-demo")
+    sub.add_parser("gen-key", help="gera uma TOKEN_ENCRYPTION_KEY (Fernet)")
     args = parser.parse_args()
     if args.cmd == "create-superadmin":
         asyncio.run(create_superadmin(args.email, args.password, args.name))
     elif args.cmd == "seed-demo":
         asyncio.run(seed_demo())
+    elif args.cmd == "gen-key":
+        from app.security.crypto import generate_key
+
+        print(generate_key())
 
 
 if __name__ == "__main__":

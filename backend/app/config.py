@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     stripe_price_pro: str = ""  # price_... do plano PRO no Stripe
     cron_secret: str = ""
 
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    token_encryption_key: str = ""  # Fernet; obrigatória em produção para integrações OAuth
+
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""

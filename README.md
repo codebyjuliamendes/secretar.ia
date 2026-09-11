@@ -136,6 +136,8 @@ Backend (`backend/.env.example`):
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | para IA real | Google Gemini |
 | `STRIPE_WEBHOOK_SECRET` | para billing | assinatura dos webhooks Stripe |
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` | para checkout | chave secreta e price ids recorrentes; sem chave em development o checkout usa o provider console |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | para Google Calendar | OAuth por clínica; redirect URI `{PUBLIC_API_URL}/api/integrations/google/callback`; sem credenciais em development usa provider console |
+| `TOKEN_ENCRYPTION_KEY` | em produção com integrações OAuth | chave Fernet que cifra refresh tokens no banco (`uv run python -m app.cli gen-key`) |
 | `CRON_SECRET` | sim | `Authorization: Bearer` dos endpoints `/api/internal/cron/*` |
 | `SMTP_*` | para e-mail real | transacional (verificação, reset, convites) |
 | `SUPER_ADMIN_EMAIL` | não | promove este e-mail a SUPER_ADMIN na inicialização |
@@ -195,6 +197,7 @@ falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de age
 | Evolution API | `integrations/whatsapp.py` | criar instância + QR, estado da conexão, envio, download de mídia (áudio/imagem); timeouts; 429/5xx → retry na fila |
 | Gemini | `integrations/gemini.py`, `services/ai.py`, `services/media.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras; áudio (transcrição) e imagem (descrição) do paciente via entrada multimodal |
 | Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
+| Google Calendar | `integrations/google_calendar.py`, `services/calendar_sync.py`, `api/integrations.py` | OAuth por clínica (state assinado, refresh token cifrado); cada criação/remarcação/confirmação/cancelamento enfileira `sync-calendar`, que cria/atualiza/apaga o evento e guarda `externalEventId`; credencial inválida desliga a sincronização e avisa na inbox |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 
 Configuração do webhook na Evolution: `POST {PUBLIC_API_URL}/api/webhooks/evolution/{EVOLUTION_WEBHOOK_TOKEN}`
@@ -212,6 +215,9 @@ Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
 4. Aponte o webhook do Stripe para `/api/webhooks/billing` e configure `STRIPE_WEBHOOK_SECRET`.
    Para checkout online, crie dois preços recorrentes no Stripe (Básico e Pro), configure `STRIPE_SECRET_KEY`,
    `STRIPE_PRICE_BASIC` e `STRIPE_PRICE_PRO`, e habilite o Customer Portal no dashboard do Stripe.
+5. Para o Google Calendar, crie um cliente OAuth (tipo Web) no Google Cloud com o redirect URI
+   `{PUBLIC_API_URL}/api/integrations/google/callback`, habilite a Calendar API e defina `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY`.
 5. Opcional: cron externo chamando `POST /api/internal/cron/daily` com `Authorization: Bearer $CRON_SECRET`
    (o agendador interno já roda às 12:00 UTC).
 

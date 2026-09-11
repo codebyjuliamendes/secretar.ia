@@ -14,8 +14,8 @@ from app.domain.plans import limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
+from app.services import calendar_sync, notifications, scheduling
 from app.services import media as media_service
-from app.services import notifications, scheduling
 from app.services.ai import AIDecision, AIService
 from app.services.tenants import is_tenant_operational
 from app.services.usage import AI_MESSAGES, ai_quota_available, increment
@@ -112,9 +112,11 @@ async def _apply_actions(
             body=f"{appt.service} em {appt.date.astimezone(UTC).isoformat()} (aguardando confirmação).",
             phone=phone,
         )
+        await calendar_sync.schedule_sync(tenant.id, appt.id)
     elif decision.intent == Intent.CANCEL and upcoming:
         target = upcoming[0]
         await db.appointment.update(where={"id": target["id"]}, data={"status": "CANCELED"})
+        await calendar_sync.schedule_sync(tenant.id, target["id"])
         await notifications.notify(
             tenant.id,
             type_="APPOINTMENT_CANCELED",

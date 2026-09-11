@@ -142,6 +142,7 @@ export interface Appointment {
   priceCents: number | null;
   notes: string | null;
   source: string;
+  externalEventId?: string | null;
   createdAt: string;
   patient: { id: string; name: string | null; phone: string } | null;
 }
@@ -205,6 +206,16 @@ export interface Billing {
   purchasablePlans: Plan[];
   usage: Usage;
   plans: PlanLimits[];
+}
+
+export interface GoogleCalendarStatus {
+  available: boolean;
+  connected: boolean;
+  accountEmail: string | null;
+  calendarId: string | null;
+  syncEnabled: boolean;
+  lastSyncAt: string | null;
+  lastError: string | null;
 }
 
 export interface WhatsAppStatus {

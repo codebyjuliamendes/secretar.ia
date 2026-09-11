@@ -12,7 +12,7 @@ from app.config import Settings
 from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
-from app.services import audit, scheduling
+from app.services import audit, calendar_sync, scheduling
 from app.services import billing as billing_service
 from app.services import dashboard as dashboard_service
 from app.services import notifications as notif_service
@@ -157,6 +157,45 @@ async def whatsapp_disconnect(
     settings: Settings = Depends(get_settings_dep),
 ):
     return await wa_service.disconnect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+# ----------------------------- Google Calendar ---------------------------
+
+
+@router.get("/integrations/google")
+async def google_calendar_status(
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await calendar_sync.status(settings, ctx.tenant_id)
+
+
+@router.post("/integrations/google/connect")
+async def google_calendar_connect(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Devolve a URL de autorização do Google; o retorno cai em /api/integrations/google/callback."""
+    return await calendar_sync.start_connect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+@router.post("/integrations/google/disconnect")
+async def google_calendar_disconnect(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await calendar_sync.disconnect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+@router.post("/integrations/google/sync")
+async def google_calendar_resync(
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await calendar_sync.resync(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
 
 
 # ------------------------------ Appointments -----------------------------

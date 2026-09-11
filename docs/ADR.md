@@ -100,3 +100,18 @@ texto, pode escrever?") e registrada com `error=media_unreadable`; nunca fingimo
 **Consequências.** Um único provedor e uma única chave; sem custo fixo de serviços adicionais. Limites de
 16 MB (áudio) e 8 MB (imagem) por mensagem. Se for preciso trocar o provedor de transcrição, o ponto é
 `services/media.py::client_for`.
+
+## ADR-011 — Google Calendar por clínica com OAuth próprio e sincronização pela fila
+
+**Contexto.** As equipes já vivem no Google Calendar; a agenda da Secretar.ia ficava isolada.
+**Decisão.** OAuth 2.0 (código + refresh, `access_type=offline`) por tenant, iniciado por OWNER/MANAGER. O
+`state` é um JWT assinado com tenant, usuário e validade de 15 min; o callback público revalida a membership
+antes de gravar. Refresh e access tokens ficam cifrados (Fernet, `TOKEN_ENCRYPTION_KEY`) em
+`CalendarConnection`. A sincronização é assíncrona: cada mudança de agendamento enfileira `sync-calendar`
+(ADR-003), que faz upsert/delete do evento e guarda `externalEventId`; agendamentos pendentes viram eventos
+`tentative` com prefixo "[Pendente]". Falha de credencial (`invalid_grant`) desliga a sincronização, registra
+`lastError` e notifica a inbox; a UI oferece "Reconectar". Sem credenciais em development, um provider console
+em memória permite testar o fluxo inteiro sem rede.
+**Consequências.** Sentido único (Secretar.ia → Google): eventos criados diretamente no Google não bloqueiam
+horários na IA. Leitura bidirecional (watch/push do Google) fica como evolução, reaproveitando a conexão.
+Dependência nova: `cryptography` (Fernet).

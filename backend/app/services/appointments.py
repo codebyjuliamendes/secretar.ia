@@ -9,7 +9,7 @@ from app.db import db
 from app.domain.phones import normalize_phone
 from app.domain.plans import limits_for, within_limit
 from app.errors import AppError, ConflictError, NotFoundError, QuotaExceededError
-from app.services import audit, scheduling
+from app.services import audit, calendar_sync, scheduling
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "PENDING": {"CONFIRMED", "CANCELED"},
@@ -32,6 +32,7 @@ def appointment_view(a) -> dict:
         "priceCents": a.priceCents,
         "notes": a.notes,
         "source": a.source,
+        "externalEventId": a.externalEventId,
         "createdAt": a.createdAt.isoformat(),
         "patient": {"id": a.patient.id, "name": a.patient.name, "phone": a.patient.phone} if a.patient else None,
     }
@@ -138,6 +139,7 @@ async def create_manual(
         actor_user_id=actor_user_id,
         ip=ip,
     )
+    await calendar_sync.schedule_sync(tenant_id, appt.id)
     return appointment_view(appt)
 
 
@@ -162,6 +164,7 @@ async def change_status(
         metadata={"from": current, "to": new_status},
         ip=ip,
     )
+    await calendar_sync.schedule_sync(tenant_id, appt.id)
     return appointment_view(updated)
 
 
@@ -195,4 +198,5 @@ async def update_details(
         metadata={"fields": sorted(payload)},
         ip=ip,
     )
+    await calendar_sync.schedule_sync(tenant_id, appt.id)
     return appointment_view(updated)
