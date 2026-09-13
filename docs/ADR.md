@@ -209,3 +209,12 @@ OAuth `calendar.events` já cobre leitura; conexões existentes não precisam re
 calendários da mesma conta (só `calendarId=primary` é lido) e recorrências com exceções muito distantes ficam
 fora da janela até a próxima leitura completa. Provider console ganha `external_events` e simulação de token
 expirado para testar tudo sem rede.
+
+**Adendo (12/set/2026) — push como gatilho.** Cada `pull-calendar` chama `ensure_watch`: se
+`GOOGLE_PUSH_ENABLED` (padrão) e `PUBLIC_API_URL` for https (ou fora de produção, com o provider console),
+garante um canal `events.watch` para `/api/integrations/google/notify` com `token` aleatório por canal, TTL de
+7 dias e renovação quando faltam menos de 12 h (o canal antigo é parado). O webhook valida
+`X-Goog-Channel-Token` em tempo constante, responde 204 e só enfileira o mesmo `pull-calendar` quando não
+há um pendente; `sync` (handshake) e canais desconhecidos são ignorados com 2xx para o Google não retentar;
+token errado é 403. O BFF do frontend não expõe essa rota. Falha ao criar o canal não derruba a leitura:
+vira `push=failed` no resultado e o polling segue. Desconectar para o canal antes de revogar o token.

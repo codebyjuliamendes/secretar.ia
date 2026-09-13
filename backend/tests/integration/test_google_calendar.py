@@ -57,6 +57,7 @@ async def test_connect_callback_sync_and_disconnect(client, clean_db):
         "lastSyncAt": None,
         "lastError": None,
         "lastPullAt": None,
+        "pushActive": False,
         "available": True,
         "externalEvents": 0,
     }

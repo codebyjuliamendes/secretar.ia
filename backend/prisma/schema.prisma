@@ -421,6 +421,12 @@ model CalendarConnection {
   syncToken            String?
   lastPullAt           DateTime?
   lastFullPullAt       DateTime?
+  // Canal de notificações push (events.watch): id do canal, resourceId do Google, segredo que o Google
+  // devolve em X-Goog-Channel-Token e validade (renovado pelo pull quando falta pouco para expirar).
+  channelId            String?   @unique
+  channelResourceId    String?
+  channelToken         String?
+  channelExpiresAt     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }

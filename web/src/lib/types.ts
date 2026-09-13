@@ -255,6 +255,7 @@ export interface GoogleCalendarStatus {
   lastSyncAt: string | null;
   lastError: string | null;
   lastPullAt: string | null;
+  pushActive: boolean;
   externalEvents: number;
 }
 

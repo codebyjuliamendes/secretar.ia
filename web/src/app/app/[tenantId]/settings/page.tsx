@@ -281,7 +281,7 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
           <p className="text-sm text-muted">Integração não configurada neste ambiente. Fale com o suporte.</p>
         ) : data.connected ? (
           <>
-            <p className="text-sm text-muted">Agenda <span className="font-medium text-foreground">{data.accountEmail ?? "Google"}</span>. Agendamentos criados, remarcados, confirmados ou cancelados são refletidos automaticamente. No sentido inverso, compromissos criados direto no Google bloqueiam horários da assistente (leitura a cada 10 minutos).</p>
+            <p className="text-sm text-muted">Agenda <span className="font-medium text-foreground">{data.accountEmail ?? "Google"}</span>. Agendamentos criados, remarcados, confirmados ou cancelados são refletidos automaticamente. No sentido inverso, compromissos criados direto no Google bloqueiam horários da assistente ({data.pushActive ? "notificação em tempo real, com leitura de segurança a cada 10 minutos" : "leitura a cada 10 minutos"}).</p>
             <p className="text-xs text-muted">
               {data.externalEvents} compromisso(s) do Google bloqueando horários
               {data.lastPullAt ? ` · última leitura ${new Date(data.lastPullAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : " · primeira leitura em andamento"}

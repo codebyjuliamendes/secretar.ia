@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -52,6 +52,13 @@ class EventPage:
 
 
 @dataclass
+class WatchChannel:
+    channel_id: str
+    resource_id: str
+    expires_at: datetime
+
+
+@dataclass
 class OAuthTokens:
     access_token: str
     expires_in: int
@@ -83,6 +90,12 @@ class GoogleCalendarProvider:
         page_token: str | None = None,
     ) -> EventPage: ...
 
+    async def watch(
+        self, *, access_token: str, calendar_id: str, channel_id: str, address: str, token: str, ttl_seconds: int
+    ) -> WatchChannel: ...
+
+    async def stop_channel(self, *, access_token: str, channel_id: str, resource_id: str) -> None: ...
+
 
 @dataclass
 class ConsoleGoogleCalendarProvider(GoogleCalendarProvider):
@@ -98,6 +111,8 @@ class ConsoleGoogleCalendarProvider(GoogleCalendarProvider):
     refreshes: int = 0
     lists: int = 0
     sync_token_valid: bool = True
+    channels: dict[str, dict] = field(default_factory=dict)  # canais push ativos (channel_id → dados)
+    stopped_channels: list[str] = field(default_factory=list)
     _seq: itertools.count = field(default_factory=lambda: itertools.count(1))
 
     def auth_url(self, *, state: str, redirect_uri: str) -> str:
@@ -140,6 +155,15 @@ class ConsoleGoogleCalendarProvider(GoogleCalendarProvider):
         # Como o Google, devolve também os eventos que a própria Secretar.ia criou (o leitor deve ignorá-los).
         items = [{"id": eid, **body} for eid, body in self.events.items()] + list(self.external_events.values())
         return EventPage(items=items, next_sync_token=f"console-sync-{self.lists}")
+
+    async def watch(self, *, access_token, calendar_id, channel_id, address, token, ttl_seconds):
+        expires = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+        self.channels[channel_id] = {"address": address, "token": token, "calendarId": calendar_id}
+        return WatchChannel(channel_id=channel_id, resource_id=f"console-res-{channel_id[:8]}", expires_at=expires)
+
+    async def stop_channel(self, *, access_token, channel_id, resource_id):
+        self.channels.pop(channel_id, None)
+        self.stopped_channels.append(channel_id)
 
 
 class HttpGoogleCalendarProvider(GoogleCalendarProvider):
@@ -264,6 +288,31 @@ class HttpGoogleCalendarProvider(GoogleCalendarProvider):
             next_page_token=data.get("nextPageToken"),
             next_sync_token=data.get("nextSyncToken"),
         )
+
+    async def watch(self, *, access_token, calendar_id, channel_id, address, token, ttl_seconds):
+        body = {
+            "id": channel_id,
+            "type": "web_hook",
+            "address": address,
+            "token": token,
+            "params": {"ttl": str(ttl_seconds)},
+        }
+        data = await self._calendar("POST", access_token, f"/calendars/{calendar_id}/events/watch", body)
+        expiration_ms = int(data.get("expiration") or 0)
+        expires = (
+            datetime.fromtimestamp(expiration_ms / 1000, tz=UTC)
+            if expiration_ms
+            else datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+        )
+        return WatchChannel(
+            channel_id=str(data.get("id") or channel_id), resource_id=str(data["resourceId"]), expires_at=expires
+        )
+
+    async def stop_channel(self, *, access_token, channel_id, resource_id):
+        try:
+            await self._calendar("POST", access_token, "/channels/stop", {"id": channel_id, "resourceId": resource_id})
+        except IntegrationUnavailableError:
+            pass  # canal já expirado/inexistente: nada a parar
 
 
 def _rfc3339(value: datetime) -> str:

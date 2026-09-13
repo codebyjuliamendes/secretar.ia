@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Notificações push do Google Calendar (events.watch). Exige PUBLIC_API_URL em https com certificado válido;
+    # sem isso a leitura periódica (pull-calendar) continua sozinha.
+    google_push_enabled: bool = True
     token_encryption_key: str = ""  # Fernet; obrigatória em produção para integrações OAuth
 
     smtp_host: str = ""

@@ -10,12 +10,18 @@ compromissos criados direto no Google; eles bloqueiam horários na disponibilida
 calendário. Eventos da própria Secretar.ia, cancelados, "livres" (transparent) ou recusados pelo dono da
 agenda não bloqueiam. Token expirado (410) ou leitura completa periódica refaz a janela e remove o que sumiu.
 
+Push (opcional): com PUBLIC_API_URL em https, cada leitura garante um canal `events.watch` apontando para
+`/api/integrations/google/notify`; a notificação do Google só enfileira o mesmo `pull-calendar` (deduplicado),
+então a latência cai de minutos para segundos sem mudar o modelo. O canal é renovado antes de expirar.
+
 Um refresh token inválido desliga a sincronização e avisa a clínica na inbox (nunca falha em silêncio).
 """
 
 from __future__ import annotations
 
+import hmac
 import secrets
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -48,6 +54,8 @@ PULL_INTERVAL_MINUTES = 10
 PULL_WINDOW_PAST_HOURS = 24
 PULL_WINDOW_DAYS = 60
 FULL_PULL_EVERY_HOURS = 24  # a janela de tempo fica presa ao syncToken; refazer a leitura completa periodicamente
+WATCH_TTL_SECONDS = 7 * 24 * 3600  # o Google limita canais de eventos a ~1 semana
+WATCH_RENEW_BEFORE = timedelta(hours=12)
 
 
 # ------------------------------- OAuth (connect) -------------------------------
@@ -92,6 +100,7 @@ def connection_view(conn) -> dict[str, Any]:
             "lastSyncAt": None,
             "lastError": None,
             "lastPullAt": None,
+            "pushActive": False,
         }
     return {
         "connected": True,
@@ -101,6 +110,7 @@ def connection_view(conn) -> dict[str, Any]:
         "lastSyncAt": conn.lastSyncAt.isoformat() if conn.lastSyncAt else None,
         "lastError": conn.lastError,
         "lastPullAt": conn.lastPullAt.isoformat() if conn.lastPullAt else None,
+        "pushActive": bool(conn.channelId and conn.channelExpiresAt and conn.channelExpiresAt > datetime.now(UTC)),
     }
 
 
@@ -189,8 +199,13 @@ async def disconnect(settings: Settings, tenant, *, actor_user_id: str, ip: str 
         return connection_view(None)
     try:
         provider = build_google_calendar_provider(settings)
+        if conn.channelId and conn.channelResourceId:
+            token = await _access_token(settings, provider, conn)
+            await provider.stop_channel(
+                access_token=token, channel_id=conn.channelId, resource_id=conn.channelResourceId
+            )
         await provider.revoke(decrypt_secret(settings, conn.refreshTokenEnc))
-    except Exception as exc:  # noqa: BLE001 - revogação é cortesia; a conexão local é removida de qualquer forma
+    except Exception as exc:  # noqa: BLE001 - revogação/parada é cortesia; a conexão local é removida de qualquer forma
         log.warning("google_revoke_skipped", error=str(exc)[:200])
     await db.calendarconnection.delete(where={"id": conn.id})
     await db.externalbusy.delete_many(where={"tenantId": tenant.id})
@@ -497,8 +512,93 @@ async def pull_external_events(settings: Settings, *, tenant_id: str) -> dict[st
     except ValueError as exc:
         await _disable_connection(conn, "credencial ilegível (chave de criptografia alterada)")
         raise PermanentJobError(str(exc)) from exc
+    result["push"] = await ensure_watch(settings, provider, token, conn, now)
     log.info("calendar_pulled", **result)
     return result
+
+
+# ------------------------------ Push (events.watch) ------------------------------
+
+
+def notify_address(settings: Settings) -> str:
+    return f"{settings.public_api_url.rstrip('/')}/api/integrations/google/notify"
+
+
+def push_available(settings: Settings) -> bool:
+    """O Google só entrega notificações em https com certificado válido; fora de produção o provider console
+    aceita qualquer endereço, o que permite testar o fluxo inteiro."""
+    if not settings.google_push_enabled:
+        return False
+    return settings.public_api_url.startswith("https://") or not settings.is_production_like
+
+
+async def ensure_watch(settings: Settings, provider, token: str, conn, now: datetime) -> str:
+    """Cria/renova o canal push da conexão. Retorna active|renewed|created|unavailable|failed."""
+    if not push_available(settings):
+        return "unavailable"
+    if conn.channelId and conn.channelExpiresAt and conn.channelExpiresAt - now > WATCH_RENEW_BEFORE:
+        return "active"
+    channel_id = str(uuid.uuid4())
+    secret = secrets.token_urlsafe(32)
+    try:
+        channel = await provider.watch(
+            access_token=token,
+            calendar_id=conn.calendarId,
+            channel_id=channel_id,
+            address=notify_address(settings),
+            token=secret,
+            ttl_seconds=WATCH_TTL_SECONDS,
+        )
+        if conn.channelId and conn.channelResourceId:
+            await provider.stop_channel(
+                access_token=token, channel_id=conn.channelId, resource_id=conn.channelResourceId
+            )
+    except Exception as exc:  # noqa: BLE001 - push é otimização: a leitura periódica segue funcionando
+        log.warning("google_watch_failed", error=str(exc)[:200])
+        return "failed"
+    await db.calendarconnection.update(
+        where={"id": conn.id},
+        data={
+            "channelId": channel.channel_id,
+            "channelResourceId": channel.resource_id,
+            "channelToken": secret,
+            "channelExpiresAt": channel.expires_at,
+        },
+    )
+    return "renewed" if conn.channelId else "created"
+
+
+async def enqueue_pull_if_idle(tenant_id: str) -> bool:
+    pending = await db.query_raw(
+        """
+        SELECT 1 FROM "Job"
+        WHERE name = $1 AND status IN ('PENDING', 'RUNNING') AND payload->>'tenantId' = $2
+        LIMIT 1
+        """,
+        PULL_CALENDAR,
+        tenant_id,
+    )
+    if pending:
+        return False
+    await enqueue(PULL_CALENDAR, {"tenantId": tenant_id})
+    return True
+
+
+async def handle_push_notification(*, channel_id: str | None, token: str | None, state: str | None) -> str:
+    """Webhook do Google. Retorna ignored|sync|queued|duplicate; lança AppError 403 para token errado."""
+    if not channel_id:
+        return "ignored"
+    conn = await db.calendarconnection.find_unique(where={"channelId": channel_id})
+    if conn is None:
+        log.info("google_push_unknown_channel", channel_id=channel_id[:36])
+        return "ignored"  # canal antigo (já trocado/desconectado): responder 2xx evita retentativas do Google
+    if not conn.channelToken or not token or not hmac.compare_digest(conn.channelToken, token):
+        raise AppError("Token do canal inválido.", code="forbidden", status_code=403)
+    if state == "sync":
+        return "sync"  # handshake de criação do canal
+    if not conn.syncEnabled:
+        return "ignored"
+    return "queued" if await enqueue_pull_if_idle(conn.tenantId) else "duplicate"
 
 
 async def schedule_pulls() -> int:
@@ -506,19 +606,7 @@ async def schedule_pulls() -> int:
     conns = await db.calendarconnection.find_many(where={"syncEnabled": True})
     queued = 0
     for conn in conns:
-        pending = await db.query_raw(
-            """
-            SELECT 1 FROM "Job"
-            WHERE name = $1 AND status IN ('PENDING', 'RUNNING') AND payload->>'tenantId' = $2
-            LIMIT 1
-            """,
-            PULL_CALENDAR,
-            conn.tenantId,
-        )
-        if pending:
-            continue
-        await enqueue(PULL_CALENDAR, {"tenantId": conn.tenantId})
-        queued += 1
+        queued += int(await enqueue_pull_if_idle(conn.tenantId))
     return queued
 
 

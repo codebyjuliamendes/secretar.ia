@@ -45,7 +45,7 @@ function errorResponse(status: number, code: string, message: string) {
 async function handle(req: NextRequest, ctx: Ctx) {
   const { path: segments } = await ctx.params;
   const path = segments.join("/");
-  if (path.startsWith("webhooks/") || path.startsWith("internal/")) {
+  if (path.startsWith("webhooks/") || path.startsWith("internal/") || path === "integrations/google/notify") {
     return errorResponse(404, "not_found", "Rota indisponível.");
   }
   const body = req.method === "GET" || req.method === "HEAD" ? null : await req.arrayBuffer();
