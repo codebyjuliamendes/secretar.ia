@@ -77,19 +77,19 @@ export default function AdminTenantsPage() {
             <tbody>
               {data.items.map((t) => (
                 <tr key={t.id}>
-                  <Td><button type="button" className="text-left font-medium text-primary hover:underline" onClick={() => setDetail(t)}>{t.name}</button><p className="text-xs text-muted">{formatPhone(t.whatsapp)}</p></Td>
+                  <Td className="min-w-44"><button type="button" className="text-left font-medium text-primary hover:underline" onClick={() => setDetail(t)}>{t.name}</button><p className="text-xs text-muted">{formatPhone(t.whatsapp)}</p></Td>
                   <Td>
-                    <Select aria-label={`Status de ${t.name}`} value={t.status} onChange={(e) => { const s = e.target.value as TenantStatus; if (s === "SUSPENDED" || s === "CANCELED") setConfirmStatus({ tenant: t, status: s }); else void update(t, { status: s }); }} className="w-44">
+                    <Select aria-label={`Status de ${t.name}`} value={t.status} onChange={(e) => { const s = e.target.value as TenantStatus; if (s === "SUSPENDED" || s === "CANCELED") setConfirmStatus({ tenant: t, status: s }); else void update(t, { status: s }); }} className="min-w-40">
                       {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                     </Select>
                   </Td>
                   <Td>
-                    <Select aria-label={`Plano de ${t.name}`} value={t.plan} onChange={(e) => update(t, { plan: e.target.value as Plan })} className="w-36">
+                    <Select aria-label={`Plano de ${t.name}`} value={t.plan} onChange={(e) => update(t, { plan: e.target.value as Plan })} className="min-w-32">
                       {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}
                     </Select>
                   </Td>
                   <Td>
-                    <Select aria-label={`Nicho de ${t.name}`} value={t.niche} onChange={(e) => update(t, { niche: e.target.value })} className="w-52">
+                    <Select aria-label={`Nicho de ${t.name}`} value={t.niche} onChange={(e) => update(t, { niche: e.target.value })} className="min-w-48">
                       {NICHES.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
                     </Select>
                   </Td>
@@ -142,7 +142,7 @@ function PaidUntilBadge({ t, now }: { t: AdminTenant; now: number }) {
   if (!t.paidUntil) return <span className="text-xs text-muted">—</span>;
   const days = Math.floor((new Date(t.paidUntil).getTime() - now) / 86_400_000);
   const tone = days < 0 ? "danger" : days <= 7 ? "warning" : "success";
-  return <Badge tone={tone}>{formatDate(t.paidUntil)}{t.paymentMethod ? ` · ${PAYMENT_LABEL[t.paymentMethod] ?? t.paymentMethod}` : ""}</Badge>;
+  return <Badge tone={tone} className="whitespace-nowrap">{formatDate(t.paidUntil)}{t.paymentMethod ? ` · ${PAYMENT_LABEL[t.paymentMethod] ?? t.paymentMethod}` : ""}</Badge>;
 }
 
 type WelcomeResult = { emails: string[]; sentAt: string; whatsappLink: string | null };
@@ -272,9 +272,9 @@ function QuotaCell({ t, onToggle }: { t: AdminTenant; onToggle: (v: boolean) => 
   const tone = unlimited ? "neutral" : pct >= 100 ? "danger" : pct >= 80 ? "warning" : "success";
   return (
     <div className="space-y-1">
-      <Badge tone={tone}>{t.aiMessagesThisMonth.toLocaleString("pt-BR")} / {limitLabel(t.aiMessagesLimit)}{!unlimited && ` · ${pct}%`}</Badge>
+      <Badge tone={tone} className="whitespace-nowrap">{t.aiMessagesThisMonth.toLocaleString("pt-BR")} / {limitLabel(t.aiMessagesLimit)}{!unlimited && ` · ${pct}%`}</Badge>
       {!unlimited && (
-        <label className="flex items-center gap-1 text-xs text-muted">
+        <label className="flex items-center gap-1 whitespace-nowrap text-xs text-muted">
           <input type="checkbox" checked={t.hardLimit} onChange={(e) => onToggle(e.target.checked)} aria-label={`Cortar ao estourar: ${t.name}`} />
           cortar ao estourar
         </label>

@@ -156,7 +156,8 @@ async def test_ai_scheduling_respects_availability(client, clean_db, monkeypatch
         )
 
     r1 = await send("s1", "5581999990010")
-    assert r1.status_code == 200 and r1.json()["reply"] == "Perfeito, vou registrar seu pedido."
+    # Primeiro contato do número: a apresentação da assistente vem antes da resposta.
+    assert r1.status_code == 200 and r1.json()["reply"].endswith("Perfeito, vou registrar seu pedido.")
     appts = (await client.get(f"/api/clinic/{tid}/appointments", headers=h)).json()["items"]
     assert len(appts) == 1 and appts[0]["status"] == "PENDING" and appts[0]["service"] == "Peeling"
     assert appts[0]["durationMin"] == 30 and appts[0]["priceCents"] == 25000 and appts[0]["source"] == "AI"

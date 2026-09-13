@@ -178,6 +178,10 @@ planos pagos (Essencial R$ 750, Profissional R$ 1.000, Premium R$ 1.500, Enterpr
 com áudio/imagem e base de conhecimento, variando volume), clínica nova PENDING até o admin liberar o plano, e
 persona da assistente gerada pelo tom (sem prompt para o cliente escrever) e nicho do negócio escolhido pelo admin
 (clínica, odontologia, psicologia, salão, pet, advocacia… — vocabulário e cuidados do ramo, mesmos preços).
+Operação manual pela equipe (ADR-019): checklist e boas-vindas no admin, cobrança por Pix/boleto ("pago até"),
+limite de mensagens que avisa em vez de cortar, relatório mensal por e-mail, importação do catálogo de serviços
+por foto/PDF, apresentação da assistente no primeiro contato, campanha de retorno pronta por nicho, Enterprise
+por conversa no WhatsApp comercial e páginas públicas por ramo (`/para/{slug}`).
 
 ## Segurança e multi-tenancy
 

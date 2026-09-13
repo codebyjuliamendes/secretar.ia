@@ -296,3 +296,44 @@ compromisso e o cuidado do ramo (`guardrail`, ex.: "nunca dê orientação jurí
 na tela de clínicas (`PATCH /admin/tenants/{id}` valida contra `NICHES`, `GET /admin/niches` lista); o painel
 do cliente recebe `niche` em `/clinic/{id}` e troca rótulos ("Pacientes" → "Tutores", "Clientes", "Alunos").
 Preços e limites são iguais para todos os nichos.
+
+## ADR-019 — Dez evoluções de produto aprovadas em 13/set/2026 (operação manual pela Julia)
+
+**Contexto.** Depois de ADR-018 e dos nichos, a Julia aprovou dez ideias de produto de uma vez. O fio comum:
+a operação é manual e feita por ela (libera, escolhe nicho, recebe Pix, conversa sobre Enterprise), então o
+sistema deve dar a ela os gestos certos no admin e exigir zero configuração do cliente.
+**Decisões.**
+1. **Enterprise é conversa, não checkout.** `SALES_WHATSAPP`/`SALES_CONTACT_NAME` viram botão wa.me com
+   mensagem pronta no card Enterprise e nos avisos de plano; `GET /api/public/config` expõe planos, nichos e
+   contato para as páginas públicas (`services/billing.py::sales_contact`).
+2. **Onboarding no admin.** Checklist por conta (plano liberado, WhatsApp conectado, serviços cadastrados,
+   boas-vindas enviadas) calculado na listagem; `POST /admin/tenants/{id}/welcome` manda o passo a passo por
+   e-mail aos OWNERs no vocabulário do nicho e devolve o mesmo texto como link wa.me (`services/onboarding.py`).
+3. **Importar serviços de foto/PDF.** `POST /clinic/{id}/services/import/preview` (Gemini multimodal; PDF passa
+   pela extração/OCR da base de conhecimento) devolve prévia; `/confirm` grava o que o cliente conferiu, pulando
+   nomes existentes (`services/service_import.py`). Nada é gravado sem o cliente ver.
+4. **Relatório mensal automático.** `services/reports.py`: mensagens respondidas, agendamentos (e quantos pela
+   IA), novos contatos, pedidos de humano, convites de retorno e quantos voltaram. Vai por e-mail aos OWNERs
+   todo início de mês; `Tenant.lastReportPeriod` garante um envio por mês mesmo com dias perdidos; contas criadas
+   depois do mês fechado só são carimbadas. Reenvio manual pelo admin e cron `/internal/cron/monthly-reports`.
+5. **Campanha de retorno por nicho.** `Niche.campaign` e `Niche.campaign_days` (barbearia 21, salão 35,
+   odontologia 180…) são o padrão quando o cliente não escreveu nada; trocar o nicho ajusta o prazo se o cliente
+   não mexeu (mesma regra do tom). Placeholder `{negocio}` aceito ao lado de `{clinica}`.
+6. **Nicho sugere o tom.** `Niche.tone`; `admin_update_tenant` só troca o tom se o cliente ainda estava no tom
+   sugerido pelo nicho anterior. Criação pelo admin usa o tom do nicho.
+7. **Limite avisa, não corta.** Estourar a cota mantém a IA respondendo; `services/quota_alerts.py` avisa o
+   painel e `ALERTS_EMAIL` a 80% e 100% (deduplicado pelo valor exato do incremento atômico). `Tenant.hardLimit`
+   (admin, "cortar ao estourar") restaura o corte por conta. Admin vê "IA no mês" por conta.
+8. **Páginas públicas por ramo.** `/para/{slug}` estáticas (`web/src/lib/niche-pages.ts`): conversa de exemplo,
+   benefícios, regra do ramo e planos; landing indexável com atalhos e `sitemap.xml`. Conteúdo de marketing vive
+   só no web; preços vêm do backend.
+9. **Cobrança fora do Stripe.** `Tenant.paidUntil/paymentMethod/billingNote`; registrar data futura reativa
+   PENDING/PAST_DUE; vencida há mais de `GRACE_DAYS=3` sem `subscriptionId`, a rotina diária pausa (PAST_DUE) e
+   avisa cliente e equipe (`services/manual_billing.py`). Stripe continua para quem assina por cartão.
+10. **Apresentação no primeiro contato.** `Niche.intro` é prefixado à primeira resposta de cada pessoa
+    (`Tenant.introEnabled`, ligado por padrão, com prévia na tela). Evita "robô escondido" e reduz reclamação.
+**Consequências.** Migration `20260913160000_tenant_ops_fields` (7 colunas no Tenant). Rotina diária ganhou
+relatórios e varredura de vencidos. Testes novos: cota branda/dura, alertas, apresentação, importação, campanha
+por nicho, boas-vindas, pagamento manual, relatório mensal, config pública. Textos de nicho e volumes por plano
+continuam ajustáveis em um único arquivo cada (`domain/niches.py`, `domain/plans.py`).
+
