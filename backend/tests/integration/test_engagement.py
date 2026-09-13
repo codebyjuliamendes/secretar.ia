@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.config import get_settings
 from app.security.signatures import sign_hub
@@ -21,9 +22,19 @@ async def _inbound(client, tid, phone, text, mid):
     return r.json()
 
 
+SP = ZoneInfo("America/Sao_Paulo")
+
+
 def _tomorrow_10h() -> datetime:
+    """Dentro da janela do lembrete (2h a 36h)."""
     d = datetime.now(UTC) + timedelta(hours=26)
     return d.replace(minute=0, second=0, microsecond=0)
+
+
+def _same_local_day(ref: datetime, hour: int) -> datetime:
+    """Outro horário no MESMO dia local de `ref` (a lista de espera agrupa por dia local, não por UTC)."""
+    local = ref.astimezone(SP).replace(hour=hour, minute=0, second=0, microsecond=0)
+    return local.astimezone(UTC)
 
 
 async def test_reminder_then_yes_confirms_and_no_cancels_and_offers_waitlist(client, clean_db):
@@ -43,8 +54,8 @@ async def test_reminder_then_yes_confirms_and_no_cancels_and_offers_waitlist(cli
         }
     )
     # Bia pediu esse dia e não conseguiu: entra na lista de espera.
-    await engagement.waitlist_add(tenant, bia, when + timedelta(hours=2), "Corte")
-    await engagement.waitlist_add(tenant, bia, when + timedelta(hours=3), "Corte")  # mesmo dia: não duplica
+    await engagement.waitlist_add(tenant, bia, _same_local_day(when, 12), "Corte")
+    await engagement.waitlist_add(tenant, bia, _same_local_day(when, 15), "Corte")  # mesmo dia local: não duplica
     assert await clean_db.waitlistentry.count(where={"tenantId": tid}) == 1
 
     assert await engagement.send_reminders() == 1
