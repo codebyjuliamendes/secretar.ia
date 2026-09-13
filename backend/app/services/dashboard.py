@@ -113,5 +113,5 @@ async def clinic_dashboard(tenant, *, days: int = 30) -> dict:
             }
             for a in recent
         ],
-        "usage": await usage_summary(tenant.id, str(tenant.plan)),
+        "usage": await usage_summary(tenant),
     }

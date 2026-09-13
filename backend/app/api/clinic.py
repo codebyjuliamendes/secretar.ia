@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
+from app.domain.plans import feature_enabled
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
 from app.services import audit, calendar_sync, knowledge, scheduling
@@ -186,7 +187,7 @@ async def add_knowledge(
 ):
     return await knowledge.add_document(
         settings,
-        ctx.tenant_id,
+        ctx.tenant,
         title=data.title,
         content=data.content,
         actor_user_id=ctx.user.id,
@@ -208,7 +209,7 @@ async def reindex_knowledge(
     ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
     settings: Settings = Depends(get_settings_dep),
 ):
-    return await knowledge.reindex(settings, ctx.tenant_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+    return await knowledge.reindex(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
 
 
 @router.post("/knowledge/search")
@@ -217,7 +218,9 @@ async def search_knowledge(
     ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
     settings: Settings = Depends(get_settings_dep),
 ):
-    """Teste manual da recuperação: o que a IA veria para esta pergunta."""
+    """Teste manual da recuperação: o que a IA veria para esta pergunta (nada, se o plano não incluir RAG)."""
+    if not feature_enabled(ctx.tenant, "knowledge"):
+        return {"items": [], "locked": True}
     snippets = await knowledge.retrieve(settings, ctx.tenant_id, q)
     return {"items": [{"title": s.title, "content": s.content, "score": round(s.score, 4)} for s in snippets]}
 

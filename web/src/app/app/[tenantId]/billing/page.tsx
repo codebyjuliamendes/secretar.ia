@@ -109,6 +109,9 @@ export default function BillingPage() {
               <UsageBar label="Mensagens atendidas pela IA" used={data.usage.aiMessages.used} limit={data.usage.aiMessages.limit} />
               <UsageBar label="Pacientes cadastrados" used={data.usage.patients.used} limit={data.usage.patients.limit} />
               <UsageBar label="Membros da equipe" used={data.usage.members.used} limit={data.usage.members.limit} />
+              {data.usage.knowledgeDocuments.limit !== 0 && (
+                <UsageBar label="Documentos na base de conhecimento" used={data.usage.knowledgeDocuments.used} limit={data.usage.knowledgeDocuments.limit} />
+              )}
             </div>
           </Card>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -125,6 +128,8 @@ export default function BillingPage() {
                     <li>{limitLabel(p.maxPatients)} pacientes</li>
                     <li>{limitLabel(p.maxMembers)} membros</li>
                     <li>{p.upsellCampaigns ? "Campanha de retorno" : "Sem campanha de retorno"}</li>
+                    <li>{p.mediaUnderstanding ? "Lê áudio e imagem do paciente" : "Só mensagens de texto"}</li>
+                    <li>{p.knowledgeBase ? `Base de conhecimento (${limitLabel(p.maxKnowledgeDocuments)} documentos)` : "Sem base de conhecimento"}</li>
                   </ul>
                   {showAction && (
                     <div className="mt-4 pt-1">

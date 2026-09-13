@@ -174,7 +174,7 @@ async def billing_overview(settings: Settings, tenant) -> dict[str, Any]:
         "hasCustomer": bool(tenant.customerId),
         "checkoutEnabled": checkout_enabled(settings),
         "purchasablePlans": purchasable_plans(settings),
-        "usage": await usage_summary(tenant.id, str(tenant.plan)),
+        "usage": await usage_summary(tenant),
         "plans": [plan_public_view(p) for p in Plan],
     }
 

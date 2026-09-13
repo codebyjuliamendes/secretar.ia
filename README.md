@@ -171,7 +171,9 @@ A suíte de integração **trunca as tabelas** e por isso só roda em um banco c
 reset de senha, **isolamento entre tenants (leitura, escrita e IDOR)**, RBAC por papel, admin exige
 SUPER_ADMIN validado no banco, webhooks (assinatura obrigatória, idempotência por tenant, bloqueio por
 status/quota), Evolution (token + instância), Stripe (assinatura, idempotência, status), fila (claim atômico,
-falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de agenda/pacientes e limites de plano.
+falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de agenda/pacientes, limites de plano e
+recursos de plano (áudio/imagem e base de conhecimento: FREE não inclui, BASIC/PRO/ENTERPRISE incluem com limite
+de documentos, trial usa os recursos do PRO).
 
 ## Segurança e multi-tenancy
 

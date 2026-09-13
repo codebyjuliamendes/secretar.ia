@@ -32,7 +32,7 @@ class FakeGemini:
 async def test_audio_without_ai_gets_clear_fallback_reply(client, clean_db):
     reg = await register_user(client)
     tid = reg["tenantId"]
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE"})
+    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "PRO"})
     body, headers = signed(
         {
             "messageId": "aud-1",
@@ -64,7 +64,7 @@ async def test_audio_transcription_feeds_the_conversation(client, clean_db, monk
     monkeypatch.setattr(media_service, "client_for", lambda settings: fake)
     reg = await register_user(client)
     tid = reg["tenantId"]
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE"})
+    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "PRO"})
     body, headers = signed(
         {
             "messageId": "aud-3",
@@ -92,7 +92,7 @@ async def test_audio_transcription_feeds_the_conversation(client, clean_db, monk
 async def test_image_with_caption_and_provider_failure(client, clean_db, monkeypatch: pytest.MonkeyPatch):
     reg = await register_user(client)
     tid = reg["tenantId"]
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE"})
+    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "PRO"})
     png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32).decode()
 
     fake = FakeGemini(text="Comprovante de pagamento de R$ 250,00 datado de 10/09.")
@@ -125,7 +125,9 @@ async def test_image_with_caption_and_provider_failure(client, clean_db, monkeyp
 async def test_evolution_media_without_download_access_replies_gracefully(client, clean_db):
     reg = await register_user(client)
     tid = reg["tenantId"]
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "whatsappInstance": "inst-media"})
+    await clean_db.tenant.update(
+        where={"id": tid}, data={"status": "ACTIVE", "plan": "PRO", "whatsappInstance": "inst-media"}
+    )
     evo = {
         "event": "messages.upsert",
         "instance": "inst-media",

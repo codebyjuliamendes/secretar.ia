@@ -5,7 +5,7 @@ import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { GoogleCalendarStatus, KnowledgeDocument, TenantSettings, WhatsAppStatus } from "@/lib/types";
+import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, TenantSettings, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -27,7 +27,7 @@ export default function SettingsPage() {
             <AssistantForm settings={data} canManage={canManage} onSaved={async () => { await Promise.all([refetch(), reload()]); }} />
             <ServicesCard canManage={canManage} />
             <AvailabilityCard canManage={canManage} />
-            <KnowledgeCard canManage={canManage} />
+            <KnowledgeCard canManage={canManage} access={data.featureAccess} />
             <UpsellForm settings={data} canManage={canManage} onSaved={refetch} />
           </div>
           <div className="space-y-4">
@@ -310,8 +310,10 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
   );
 }
 
-function KnowledgeCard({ canManage }: { canManage: boolean }) {
+function KnowledgeCard({ canManage, access }: { canManage: boolean; access: FeatureAccess }) {
   const { tenant } = useTenant();
+  const locked = !access.knowledge;
+  const docLimit = access.maxKnowledgeDocuments;
   const toast = useToast();
   const { data, error, loading, refetch } = useQuery(() => api.get<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge`), [tenant.id]);
   const [title, setTitle] = useState("");
@@ -358,9 +360,17 @@ function KnowledgeCard({ canManage }: { canManage: boolean }) {
   }
 
   return (
-    <Card title="Base de conhecimento" action={data ? <Badge tone={data.items.length ? "success" : "neutral"}>{data.items.length} documento(s)</Badge> : undefined}>
+    <Card title="Base de conhecimento" action={data ? <Badge tone={locked ? "warning" : data.items.length ? "success" : "neutral"}>{locked ? "não incluída no plano" : `${data.items.length}${docLimit >= 0 ? ` / ${docLimit}` : ""} documento(s)`}</Badge> : undefined}>
       <div className="space-y-4">
         <p className="text-sm text-muted">Cole aqui textos que a assistente pode usar para responder dúvidas: preparo para procedimentos, políticas de cancelamento, formas de pagamento, endereço e estacionamento, perguntas frequentes. Ela cita apenas o que estiver aqui.</p>
+        {locked && (
+          <Alert tone="warning" title="Recurso não incluído no seu plano">
+            A assistente não consulta a base de conhecimento no plano atual{data && data.items.length > 0 ? "; os documentos ficam guardados e voltam a valer ao fazer upgrade" : ""}. Veja os planos em Plano &amp; uso.
+          </Alert>
+        )}
+        {!locked && access.source === "trial" && (
+          <Alert tone="info">Durante o período de teste você usa os recursos do plano {access.featurePlan === "PRO" ? "Pro" : access.featurePlan}. Ao contratar, valem os limites do plano escolhido.</Alert>
+        )}
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : loading || !data ? (
@@ -380,7 +390,7 @@ function KnowledgeCard({ canManage }: { canManage: boolean }) {
             ))}
           </ul>
         )}
-        {canManage && (
+        {canManage && !locked && (
           <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">
             <Field label="Título" htmlFor="kb-title" required><Input id="kb-title" placeholder="Ex.: Preparo para peeling" value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
             <Field label="Conteúdo" htmlFor="kb-content" required hint="Texto livre, até 30 mil caracteres. Separe assuntos em parágrafos.">
@@ -389,7 +399,7 @@ function KnowledgeCard({ canManage }: { canManage: boolean }) {
             <Button onClick={add} loading={saving} disabled={title.trim().length < 2 || content.trim().length < 20}>Adicionar documento</Button>
           </fieldset>
         )}
-        {data && data.items.length > 0 && (
+        {data && data.items.length > 0 && !locked && (
           <div className="space-y-2">
             <Field label="Testar: o que a assistente encontraria para..." htmlFor="kb-q">
               <div className="flex gap-2">

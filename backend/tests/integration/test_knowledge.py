@@ -100,7 +100,7 @@ async def test_knowledge_crud_retrieval_and_isolation(client, clean_db):
 async def test_knowledge_feeds_whatsapp_reply_in_degraded_mode(client, clean_db):
     reg = await register_user(client)
     tid, h = reg["tenantId"], auth_headers(reg)
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE"})
+    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "BASIC"})
     await client.post(
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Pagamento e cancelamento", "content": DOC_PAGAMENTO}
     )

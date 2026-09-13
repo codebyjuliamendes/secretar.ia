@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.db import db
-from app.domain.plans import Plan, limits_for, plan_public_view
+from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
 from generated_prisma import Json
@@ -40,6 +40,7 @@ def tenant_settings_view(t) -> dict:
         "upsellDays": t.upsellDays,
         "slotMinutes": t.slotMinutes,
         "features": t.features or {},
+        "featureAccess": feature_access_view(t),
         "planLimits": plan_public_view(Plan(str(t.plan))),
     }
 

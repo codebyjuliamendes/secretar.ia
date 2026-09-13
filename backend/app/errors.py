@@ -56,6 +56,11 @@ class QuotaExceededError(AppError):
     code = "quota_exceeded"
 
 
+class PlanFeatureLockedError(AppError):
+    status_code = 402
+    code = "plan_feature_locked"
+
+
 class IntegrationUnavailableError(AppError):
     status_code = 503
     code = "integration_unavailable"

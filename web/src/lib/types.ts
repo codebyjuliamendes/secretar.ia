@@ -46,7 +46,19 @@ export interface PlanLimits {
   maxPatients: number;
   maxMembers: number;
   upsellCampaigns: boolean;
+  mediaUnderstanding: boolean;
+  knowledgeBase: boolean;
+  maxKnowledgeDocuments: number; // -1 = ilimitado
   priceCentsMonth: number;
+}
+
+/** O que a clínica pode usar agora (recursos de plano); no trial valem os recursos do PRO. */
+export interface FeatureAccess {
+  source: "trial" | "plan";
+  featurePlan: Plan;
+  media: boolean;
+  knowledge: boolean;
+  maxKnowledgeDocuments: number;
 }
 
 export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNotifications"> {
@@ -58,6 +70,7 @@ export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNoti
   upsellDays: number;
   slotMinutes: number;
   features: Record<string, boolean>;
+  featureAccess: FeatureAccess;
   planLimits: PlanLimits;
 }
 
@@ -66,6 +79,7 @@ export interface Usage {
   aiMessages: { used: number; limit: number };
   patients: { used: number; limit: number };
   members: { used: number; limit: number };
+  knowledgeDocuments: { used: number; limit: number };
 }
 
 export interface Dashboard {

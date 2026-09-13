@@ -139,3 +139,21 @@ servidor não conhecer o parâmetro, a consulta simples é usada. Nunca recriar 
 **Consequências.** Postgres precisa da extensão `vector` (imagem `pgvector/pgvector:pg16` no compose e no CI;
 Neon/Supabase já oferecem). Reindexação manual disponível para quando a chave de IA for configurada depois.
 Ingestão de PDF/URL e sugestão automática de documentos ficam como evolução.
+
+## ADR-013 — Leitura de mídia e base de conhecimento como recursos de plano (PRO no trial)
+
+**Contexto.** ADR-010 e ADR-012 deixaram explícito que o gating de áudio/imagem e RAG por plano era decisão de
+produto pendente. Sem ele, o FREE consumia Gemini multimodal e embeddings sem nenhuma receita associada.
+**Decisão.** `PlanLimits` ganha `media_understanding`, `knowledge_base` e `max_knowledge_documents`: FREE não
+tem nenhum dos dois; BASIC tem ambos com 10 documentos; PRO 50; ENTERPRISE ilimitado. Durante o **trial** a
+clínica usa os recursos do PRO (`TRIAL_FEATURE_PLAN`), mantendo os limites de volume (mensagens, pacientes,
+membros) do plano contratado — recurso é o que se experimenta, volume é o que se paga. A resolução fica em
+`domain/plans.py::feature_plan/feature_enabled` e é aplicada no backend: mídia fora do plano responde ao
+paciente pedindo texto sem acionar o provedor, registra `error=media_not_in_plan` e avisa a clínica na inbox
+(BILLING, dedupe 24 h); base de conhecimento fora do plano devolve 402 `plan_feature_locked` em criar/reindexar,
+a IA não recupera trechos e a busca de teste responde `locked`. Documentos existentes de uma clínica que caiu
+para o FREE são preservados e voltam a valer ao subir de plano. O frontend só reflete (`featureAccess` nas
+configurações, `knowledgeDocuments` no uso, recursos nos cards de plano).
+**Consequências.** Custo de IA alinhado à receita; conversão do trial pela experiência completa. Mudar a
+política é alterar `PLAN_LIMITS`/`TRIAL_FEATURE_PLAN`, sem tocar em rotas. O campo `Tenant.features` (Json)
+continua livre e **não** sobrepõe o plano: um OWNER poderia editá-lo pela API de configurações.

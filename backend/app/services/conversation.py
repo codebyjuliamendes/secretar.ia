@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from app.config import Settings
 from app.db import db
 from app.domain.intents import Intent
-from app.domain.plans import limits_for, within_limit
+from app.domain.plans import feature_enabled, limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
@@ -201,7 +201,22 @@ async def handle_inbound(
 
         media_text: media_service.MediaText | None = None
         media_failed = False
-        if media is not None:
+        media_error = "media_unreadable"
+        if media is not None and not feature_enabled(tenant, "media"):
+            # Recurso de plano: não gastamos o provedor, avisamos a clínica e pedimos texto ao paciente.
+            media_failed = True
+            media_error = "media_not_in_plan"
+            noun = "um áudio" if media.kind == "audio" else "uma imagem"
+            await notifications.notify(
+                tenant.id,
+                type_="BILLING",
+                title="Áudio e imagem não incluídos no plano",
+                body=f"Um paciente enviou {noun}, mas o plano {tenant.plan} não inclui leitura de mídia pela "
+                "assistente; ela pediu que ele escrevesse. Faça upgrade em Plano & uso para habilitar.",
+                phone=phone,
+                dedupe_minutes=24 * 60,
+            )
+        elif media is not None:
             media_text = await media_service.media_to_text(settings, media)
             if media_text is None:
                 media_failed = True
@@ -209,7 +224,7 @@ async def handle_inbound(
                 text = media_text.text
         if media_failed:
             # Registra a tentativa e responde com clareza; não consome a IA de atendimento.
-            too_large = not media_service.size_ok(media)
+            too_large = media_error == "media_unreadable" and not media_service.size_ok(media)
             reply = media_service.unsupported_reply(media.kind, too_large=too_large)
             await db.message.create_many(
                 data=[
@@ -230,13 +245,13 @@ async def handle_inbound(
                     "model": "rules",
                     "input": f"[{media.kind}] {text}"[:4000],
                     "output": reply,
-                    "error": "media_unreadable",
+                    "error": media_error,
                     "runTimeMs": int((time.perf_counter() - started) * 1000),
                 }
             )
             await increment(tenant.id, AI_MESSAGES)
             await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
-            log.info("inbound_media_unreadable", kind=media.kind, source=source)
+            log.info("inbound_media_unreadable", kind=media.kind, source=source, error=media_error)
             return InboundResult(status="processed", intent=Intent.INFO.value, reply=reply, degraded=True)
 
         history = await _history(tenant.id, phone)
@@ -245,7 +260,7 @@ async def handle_inbound(
         rules = await scheduling.get_rules(tenant.id)
         tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
         slots = await scheduling.free_slots(tenant, days=7, limit=6)
-        snippets = await knowledge.retrieve(settings, tenant.id, text)
+        snippets = await knowledge.retrieve(settings, tenant.id, text) if feature_enabled(tenant, "knowledge") else []
         decision = await AIService(settings).decide(
             tenant,
             history=history,

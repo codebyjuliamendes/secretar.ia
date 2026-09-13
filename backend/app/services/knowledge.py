@@ -15,7 +15,8 @@ from typing import Any
 
 from app.config import Settings
 from app.db import db
-from app.errors import AppError, NotFoundError, QuotaExceededError
+from app.domain.plans import feature_enabled, knowledge_documents_limit, within_limit
+from app.errors import AppError, NotFoundError, PlanFeatureLockedError, QuotaExceededError
 from app.integrations.gemini import AIProviderError, GeminiClient
 from app.logging import get_logger
 from app.services import audit
@@ -25,7 +26,6 @@ log = get_logger("knowledge")
 EMBEDDING_DIMS = 768
 CHUNK_TARGET_CHARS = 800
 CHUNK_MAX_CHARS = 1200
-MAX_DOCUMENTS_PER_TENANT = 50
 MAX_DOCUMENT_CHARS = 30_000
 RETRIEVE_LIMIT = 4
 MIN_TERM_LEN = 3
@@ -66,6 +66,17 @@ def chunk_text(text: str, *, target: int = CHUNK_TARGET_CHARS, maximum: int = CH
     if buf:
         chunks.append(buf)
     return chunks
+
+
+def assert_enabled(tenant) -> None:
+    """Base de conhecimento é recurso de plano (BASIC+; PRO durante o trial). Documentos existentes de uma
+    clínica que voltou ao FREE ficam guardados, mas não são alterados nem usados pela IA."""
+    if not feature_enabled(tenant, "knowledge"):
+        raise PlanFeatureLockedError(
+            "A base de conhecimento não está incluída no seu plano. Faça upgrade em Plano & uso para usá-la.",
+            code="plan_feature_locked",
+            details={"feature": "knowledge", "plan": str(tenant.plan)},
+        )
 
 
 def embedding_client(settings: Settings) -> GeminiClient | None:
@@ -135,16 +146,21 @@ async def _store_chunks(settings: Settings, tenant_id: str, document_id: str, ch
 
 
 async def add_document(
-    settings: Settings, tenant_id: str, *, title: str, content: str, actor_user_id: str, ip: str | None
+    settings: Settings, tenant, *, title: str, content: str, actor_user_id: str, ip: str | None
 ) -> dict[str, Any]:
+    assert_enabled(tenant)
+    tenant_id = tenant.id
     title, content = title.strip(), content.strip()
     if len(content) > MAX_DOCUMENT_CHARS:
         raise AppError(
             f"Documento acima de {MAX_DOCUMENT_CHARS} caracteres; divida em partes.", code="document_too_long"
         )
-    if await db.knowledgedocument.count(where={"tenantId": tenant_id}) >= MAX_DOCUMENTS_PER_TENANT:
+    limit = knowledge_documents_limit(tenant)
+    if not within_limit(await db.knowledgedocument.count(where={"tenantId": tenant_id}), limit):
         raise QuotaExceededError(
-            f"Limite de {MAX_DOCUMENTS_PER_TENANT} documentos na base de conhecimento.", code="knowledge_limit"
+            f"Seu plano permite {limit} documentos na base de conhecimento.",
+            code="knowledge_limit",
+            details={"limit": limit},
         )
     chunks = chunk_text(content)
     if not chunks:
@@ -184,8 +200,10 @@ async def delete_document(tenant_id: str, document_id: str, *, actor_user_id: st
     )
 
 
-async def reindex(settings: Settings, tenant_id: str, *, actor_user_id: str, ip: str | None) -> dict[str, int]:
+async def reindex(settings: Settings, tenant, *, actor_user_id: str, ip: str | None) -> dict[str, int]:
     """Recalcula embeddings de todos os documentos (ex.: após configurar a chave de IA)."""
+    assert_enabled(tenant)
+    tenant_id = tenant.id
     docs = await db.knowledgedocument.find_many(where={"tenantId": tenant_id})
     embedded = 0
     for d in docs:

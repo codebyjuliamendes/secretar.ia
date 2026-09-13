@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.db import db
-from app.domain.plans import limits_for, within_limit
+from app.domain.plans import feature_enabled, knowledge_documents_limit, limits_for, within_limit
 
 AI_MESSAGES = "ai_messages"
 
@@ -52,14 +52,19 @@ async def ai_quota_available(tenant_id: str, plan: str) -> tuple[bool, int, int]
     return within_limit(used, limit), used, limit
 
 
-async def usage_summary(tenant_id: str, plan: str) -> dict:
-    lim = limits_for(plan)
+async def usage_summary(tenant) -> dict:
+    tenant_id, lim = tenant.id, limits_for(str(tenant.plan))
     used = await get_count(tenant_id, AI_MESSAGES)
     patients = await db.patient.count(where={"tenantId": tenant_id})
     members = await db.membership.count(where={"tenantId": tenant_id})
+    documents = await db.knowledgedocument.count(where={"tenantId": tenant_id})
     return {
         "period": current_period(),
         "aiMessages": {"used": used, "limit": lim.ai_messages_per_month},
         "patients": {"used": patients, "limit": lim.max_patients},
         "members": {"used": members, "limit": lim.max_members},
+        "knowledgeDocuments": {
+            "used": documents,
+            "limit": knowledge_documents_limit(tenant) if feature_enabled(tenant, "knowledge") else 0,
+        },
     }
