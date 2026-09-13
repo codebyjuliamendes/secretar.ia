@@ -130,10 +130,20 @@ export interface AvailabilityRule {
   end: string; // HH:MM
 }
 
+export interface ExternalBusy {
+  id: string;
+  summary: string | null;
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
 export interface CalendarData {
   timezone: string;
   slotMinutes: number;
   rules: AvailabilityRule[];
+  /** Compromissos criados direto no Google Calendar da clínica (bloqueiam horários da IA). */
+  external: ExternalBusy[];
   appointments: {
     id: string;
     service: string;
@@ -244,6 +254,8 @@ export interface GoogleCalendarStatus {
   syncEnabled: boolean;
   lastSyncAt: string | null;
   lastError: string | null;
+  lastPullAt: string | null;
+  externalEvents: number;
 }
 
 export interface WhatsAppStatus {

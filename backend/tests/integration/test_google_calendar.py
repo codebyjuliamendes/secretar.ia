@@ -56,7 +56,9 @@ async def test_connect_callback_sync_and_disconnect(client, clean_db):
         "syncEnabled": False,
         "lastSyncAt": None,
         "lastError": None,
+        "lastPullAt": None,
         "available": True,
+        "externalEvents": 0,
     }
     assert (await client.post(f"/api/clinic/{tid}/integrations/google/sync", headers=h)).status_code == 409
 

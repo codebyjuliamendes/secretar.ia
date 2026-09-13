@@ -138,7 +138,7 @@ Backend (`backend/.env.example`):
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` | para checkout | chave secreta e price ids recorrentes; sem chave em development o checkout usa o provider console |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | para Google Calendar | OAuth por clínica; redirect URI `{PUBLIC_API_URL}/api/integrations/google/callback`; sem credenciais em development usa provider console |
 | `TOKEN_ENCRYPTION_KEY` | em produção com integrações OAuth | chave Fernet que cifra refresh tokens no banco (`uv run python -m app.cli gen-key`) |
-| `CRON_SECRET` | sim | `Authorization: Bearer` dos endpoints `/api/internal/cron/*` |
+| `CRON_SECRET` | sim | `Authorization: Bearer` dos endpoints `/api/internal/cron/*` (`upsell`, `daily`, `pull-calendar`; o scheduler interno já dispara todos) |
 | `SMTP_*` | para e-mail real | transacional (verificação, reset, convites) |
 | `SUPER_ADMIN_EMAIL` | não | promove este e-mail a SUPER_ADMIN na inicialização |
 
@@ -199,7 +199,7 @@ de documentos, trial usa os recursos do PRO).
 | Evolution API | `integrations/whatsapp.py` | criar instância + QR, estado da conexão, envio, download de mídia (áudio/imagem); timeouts; 429/5xx → retry na fila |
 | Gemini | `integrations/gemini.py`, `services/ai.py`, `services/media.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras; áudio (transcrição) e imagem (descrição) do paciente via entrada multimodal |
 | Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
-| Google Calendar | `integrations/google_calendar.py`, `services/calendar_sync.py`, `api/integrations.py` | OAuth por clínica (state assinado, refresh token cifrado); cada criação/remarcação/confirmação/cancelamento enfileira `sync-calendar`, que cria/atualiza/apaga o evento e guarda `externalEventId`; credencial inválida desliga a sincronização e avisa na inbox |
+| Google Calendar | `integrations/google_calendar.py`, `services/calendar_sync.py`, `api/integrations.py` | OAuth por clínica (state assinado, refresh token cifrado); cada criação/remarcação/confirmação/cancelamento enfileira `sync-calendar`, que cria/atualiza/apaga o evento e guarda `externalEventId`; no sentido inverso, `pull-calendar` (a cada 10 min, `syncToken` incremental) espelha em `ExternalBusy` os compromissos criados direto no Google, que bloqueiam horários da IA e aparecem no calendário; credencial inválida desliga a sincronização e avisa na inbox |
 | Base de conhecimento (RAG) | `services/knowledge.py`, `services/knowledge_sources.py` | documentos colados, PDF/`.txt` enviados ou páginas públicas por URL (sem OCR; hosts internos recusados) → trechos → embeddings Gemini em pgvector (768 dims, índice HNSW por cosseno com varredura iterativa); recuperação vetorial com fallback para texto completo em português; trechos entram no prompt como fonte de verdade; recurso de plano (BASIC+, PRO no trial) |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 

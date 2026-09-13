@@ -40,7 +40,7 @@ export default function SettingsPage() {
                 <li>A base de conhecimento responde dúvidas sobre preparo, políticas e pagamento; fora dela, a IA encaminha à equipe.</li>
                 <li>Pedidos de agendamento ficam pendentes até a confirmação da equipe.</li>
                 <li>Quando o paciente pede uma pessoa, a equipe é avisada na inbox.</li>
-                <li>Com o Google Calendar conectado, cada agendamento vira um evento na agenda da clínica.</li>
+                <li>Com o Google Calendar conectado, cada agendamento vira um evento na agenda da clínica, e compromissos criados direto no Google bloqueiam horários para a IA.</li>
               </ul>
             </Card>
           </div>
@@ -281,7 +281,11 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
           <p className="text-sm text-muted">Integração não configurada neste ambiente. Fale com o suporte.</p>
         ) : data.connected ? (
           <>
-            <p className="text-sm text-muted">Agenda <span className="font-medium text-foreground">{data.accountEmail ?? "Google"}</span>. Agendamentos criados, remarcados, confirmados ou cancelados são refletidos automaticamente.</p>
+            <p className="text-sm text-muted">Agenda <span className="font-medium text-foreground">{data.accountEmail ?? "Google"}</span>. Agendamentos criados, remarcados, confirmados ou cancelados são refletidos automaticamente. No sentido inverso, compromissos criados direto no Google bloqueiam horários da assistente (leitura a cada 10 minutos).</p>
+            <p className="text-xs text-muted">
+              {data.externalEvents} compromisso(s) do Google bloqueando horários
+              {data.lastPullAt ? ` · última leitura ${new Date(data.lastPullAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : " · primeira leitura em andamento"}
+            </p>
             {data.lastError && <Alert tone="warning">{data.syncEnabled ? data.lastError : `Sincronização pausada: ${data.lastError}. Reconecte para retomar.`}</Alert>}
             {data.lastSyncAt && <p className="text-xs text-muted">Última sincronização: {new Date(data.lastSyncAt).toLocaleString("pt-BR")}</p>}
             {canManage && (

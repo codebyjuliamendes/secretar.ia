@@ -142,6 +142,13 @@ export default function CalendarPage() {
               const wd = (d.getDay() + 6) % 7;
               const dayRules = (data?.rules ?? []).filter((r) => r.weekday === wd);
               const dayAppts = visible.filter((a) => new Date(a.start).toDateString() === d.toDateString());
+              const dayExternal = (data?.external ?? []).filter((x) => {
+                const s = new Date(x.start);
+                const e = new Date(x.end);
+                const dayStart = new Date(d);
+                const dayEnd = new Date(d.getTime() + 86400000);
+                return s < dayEnd && e > dayStart;
+              });
               return (
                 <div
                   key={d.toISOString()}
@@ -164,6 +171,28 @@ export default function CalendarPage() {
                   {d.toDateString() === now.toDateString() && (
                     <div aria-hidden className="absolute inset-x-0 border-t-2 border-primary" style={{ top: (minutesOf(now) - range.min) * PX_PER_MIN }} />
                   )}
+                  {dayExternal.map((x) => {
+                    const s = new Date(x.start);
+                    const e = new Date(x.end);
+                    const dayStart = new Date(d);
+                    const dayEnd = new Date(d.getTime() + 86400000);
+                    const fromMin = s <= dayStart ? range.min : minutesOf(s);
+                    const toMin = e >= dayEnd ? range.max : minutesOf(e);
+                    const top = (fromMin - range.min) * PX_PER_MIN;
+                    const h = Math.max(22, (toMin - fromMin) * PX_PER_MIN - 2);
+                    return (
+                      <div
+                        key={x.id}
+                        aria-hidden
+                        className="absolute inset-x-1 overflow-hidden rounded-md border-l-4 border-border bg-surface-2/80 px-1.5 py-0.5 text-[11px] leading-tight text-muted"
+                        style={{ top, height: h, backgroundImage: "repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.05) 6px 8px)" }}
+                        title={`${x.summary ?? "Compromisso"} · Google Calendar`}
+                      >
+                        <p className="truncate font-semibold">{x.allDay ? "Dia todo" : s.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · Google</p>
+                        <p className="truncate">{x.summary ?? "Compromisso"}</p>
+                      </div>
+                    );
+                  })}
                   {dayAppts.map((a) => {
                     const s = new Date(a.start);
                     const e = new Date(a.end);
@@ -198,6 +227,7 @@ export default function CalendarPage() {
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
         Legenda:
         {(Object.keys(APPT_LABEL) as AppointmentStatus[]).map((s) => <Badge key={s} tone={APPT_TONE[s]}>{APPT_LABEL[s]}</Badge>)}
+        {(data?.external.length ?? 0) > 0 && <Badge tone="neutral">Google Calendar</Badge>}
         <span className="ml-auto">Áreas claras são horários de atendimento. <Link href={`/app/${tenant.id}/settings#horarios`} className="text-primary hover:underline">Editar horários</Link></span>
       </div>
       <NewAppointmentModal open={modal.open} initialDate={modal.date} onClose={() => setModal({ open: false })} onCreated={() => { setModal({ open: false }); void refetch(); }} />

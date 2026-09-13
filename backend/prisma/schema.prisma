@@ -173,6 +173,7 @@ model Tenant {
   usageCounters     UsageCounter[]
   upsellDispatches  UpsellDispatch[]
   calendarConnection CalendarConnection?
+  externalBusy       ExternalBusy[]
   knowledgeDocuments KnowledgeDocument[]
   knowledgeChunks    KnowledgeChunk[]
 }
@@ -416,8 +417,30 @@ model CalendarConnection {
   syncEnabled          Boolean   @default(true)
   lastSyncAt           DateTime?
   lastError            String?
+  // Leitura (Google → Secretar.ia): token incremental do events.list e carimbo da última leitura.
+  syncToken            String?
+  lastPullAt           DateTime?
+  lastFullPullAt       DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+}
+
+// Compromisso criado diretamente no calendário externo (não pela Secretar.ia). Bloqueia horários na
+// disponibilidade da IA e aparece no calendário da clínica. Espelho do Google: apagado quando o evento some.
+model ExternalBusy {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  externalId String
+  summary    String?
+  startAt    DateTime
+  endAt      DateTime
+  allDay     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, startAt, endAt])
 }
 
 // Rate limit distribuído (janela fixa por bucket). Consistente entre réplicas sem Redis; buckets antigos

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -39,6 +40,17 @@ class GoogleOAuthError(Exception):
     """Falha permanente de credencial (invalid_grant, acesso revogado): exige reconectar."""
 
 
+class GoogleSyncTokenInvalid(Exception):
+    """syncToken expirado (410 Gone): refazer a leitura completa da janela."""
+
+
+@dataclass
+class EventPage:
+    items: list[dict]
+    next_page_token: str | None = None
+    next_sync_token: str | None = None
+
+
 @dataclass
 class OAuthTokens:
     access_token: str
@@ -60,14 +72,32 @@ class GoogleCalendarProvider:
 
     async def delete_event(self, *, access_token: str, calendar_id: str, event_id: str) -> None: ...
 
+    async def list_events(
+        self,
+        *,
+        access_token: str,
+        calendar_id: str,
+        sync_token: str | None = None,
+        time_min: datetime | None = None,
+        time_max: datetime | None = None,
+        page_token: str | None = None,
+    ) -> EventPage: ...
+
 
 @dataclass
 class ConsoleGoogleCalendarProvider(GoogleCalendarProvider):
-    """Desenvolvimento/testes: guarda eventos em memória e aceita qualquer código."""
+    """Desenvolvimento/testes: guarda eventos em memória e aceita qualquer código.
+
+    `external_events` simula compromissos criados direto no Google (id → evento no formato da API);
+    `sync_token_valid=False` faz a próxima leitura incremental responder 410 (token expirado).
+    """
 
     events: dict[str, dict] = field(default_factory=dict)
+    external_events: dict[str, dict] = field(default_factory=dict)
     revoked: list[str] = field(default_factory=list)
     refreshes: int = 0
+    lists: int = 0
+    sync_token_valid: bool = True
     _seq: itertools.count = field(default_factory=lambda: itertools.count(1))
 
     def auth_url(self, *, state: str, redirect_uri: str) -> str:
@@ -99,6 +129,17 @@ class ConsoleGoogleCalendarProvider(GoogleCalendarProvider):
 
     async def delete_event(self, *, access_token, calendar_id, event_id):
         self.events.pop(event_id, None)
+
+    async def list_events(
+        self, *, access_token, calendar_id, sync_token=None, time_min=None, time_max=None, page_token=None
+    ):
+        self.lists += 1
+        if sync_token and not self.sync_token_valid:
+            self.sync_token_valid = True
+            raise GoogleSyncTokenInvalid()
+        # Como o Google, devolve também os eventos que a própria Secretar.ia criou (o leitor deve ignorá-los).
+        items = [{"id": eid, **body} for eid, body in self.events.items()] + list(self.external_events.values())
+        return EventPage(items=items, next_sync_token=f"console-sync-{self.lists}")
 
 
 class HttpGoogleCalendarProvider(GoogleCalendarProvider):
@@ -161,15 +202,20 @@ class HttpGoogleCalendarProvider(GoogleCalendarProvider):
         except GoogleTransientError:
             log.warning("google_revoke_failed")
 
-    async def _calendar(self, method: str, access_token: str, path: str, json: dict | None = None) -> dict:
+    async def _calendar(
+        self, method: str, access_token: str, path: str, json: dict | None = None, params: dict | None = None
+    ) -> dict:
         resp = await self._request(
             method,
             f"{CALENDAR_URL}{path}",
             headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
             json=json,
+            params=params,
         )
         if resp.status_code == 401:
             raise GoogleAuthExpired()
+        if resp.status_code == 410 and method == "GET":
+            raise GoogleSyncTokenInvalid()
         if resp.status_code in (404, 410) and method == "DELETE":
             return {}
         if resp.status_code >= 500 or resp.status_code == 429:
@@ -197,6 +243,31 @@ class HttpGoogleCalendarProvider(GoogleCalendarProvider):
 
     async def delete_event(self, *, access_token, calendar_id, event_id):
         await self._calendar("DELETE", access_token, f"/calendars/{calendar_id}/events/{event_id}")
+
+    async def list_events(
+        self, *, access_token, calendar_id, sync_token=None, time_min=None, time_max=None, page_token=None
+    ):
+        # Com syncToken o Google proíbe filtros de tempo: a janela da leitura completa fica "lembrada" no token.
+        params: dict[str, str] = {"singleEvents": "true", "showDeleted": "true", "maxResults": "250"}
+        if page_token:
+            params["pageToken"] = page_token
+        if sync_token:
+            params["syncToken"] = sync_token
+        else:
+            if time_min:
+                params["timeMin"] = _rfc3339(time_min)
+            if time_max:
+                params["timeMax"] = _rfc3339(time_max)
+        data = await self._calendar("GET", access_token, f"/calendars/{calendar_id}/events", params=params)
+        return EventPage(
+            items=list(data.get("items") or []),
+            next_page_token=data.get("nextPageToken"),
+            next_sync_token=data.get("nextSyncToken"),
+        )
+
+
+def _rfc3339(value: datetime) -> str:
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 _console = ConsoleGoogleCalendarProvider()

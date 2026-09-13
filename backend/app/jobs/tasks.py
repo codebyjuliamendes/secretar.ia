@@ -18,6 +18,7 @@ SEND_WHATSAPP = "send-whatsapp"
 SEND_EMAIL = "send-email"
 UPSELL_CAMPAIGN = "upsell-campaign"
 SYNC_CALENDAR = "sync-calendar"
+PULL_CALENDAR = "pull-calendar"
 
 
 @register_task(SEND_WHATSAPP)
@@ -73,3 +74,14 @@ async def sync_calendar(payload: dict[str, Any]) -> None:
         raise PermanentJobError("payload incompleto para sync-calendar")
     result = await sync_appointment(get_settings(), tenant_id=tenant_id, appointment_id=appointment_id)
     log.info("sync_calendar_done", appointment_id=appointment_id, result=result)
+
+
+@register_task(PULL_CALENDAR)
+async def pull_calendar(payload: dict[str, Any]) -> None:
+    from app.services.calendar_sync import pull_external_events
+
+    tenant_id = payload.get("tenantId")
+    if not tenant_id:
+        raise PermanentJobError("payload incompleto para pull-calendar")
+    result = await pull_external_events(get_settings(), tenant_id=tenant_id)
+    log.info("pull_calendar_done", **result)

@@ -182,3 +182,28 @@ requisição e o httpx resolve o nome de novo ao conectar (janela teórica de DN
 seria preciso conectar ao IP validado com SNI manual, o que fica como evolução se o produto ganhar exposição.
 Páginas que exigem JavaScript para renderizar o conteúdo não são suportadas (só o HTML servido). OCR de PDFs
 digitalizados fica como evolução (Gemini multimodal já lê imagens; um caminho é rasterizar as páginas).
+
+## ADR-015 — Leitura do Google Calendar por polling incremental (syncToken), não por push
+
+**Contexto.** ADR-011 deixou a agenda em sentido único: um compromisso criado direto no Google não bloqueava
+horários e a IA podia oferecer um slot já ocupado. A evolução prevista falava em watch/push do Google.
+**Decisão.** Polling incremental em vez de push, por enquanto: o job `pull-calendar` roda a cada 10 minutos
+por conexão ativa (scheduler interno com advisory lock; também `POST /internal/cron/pull-calendar`), logo
+após conectar e ao ressincronizar. Usa `events.list` com `singleEvents=true`, `showDeleted=true` e o
+`nextSyncToken` guardado em `CalendarConnection.syncToken`; `410 Gone` ou uma leitura completa a cada 24 h
+(`lastFullPullAt`, porque a janela de tempo fica presa ao token) refazem a janela (−24 h, +60 dias) e removem
+o que não voltou. Os eventos são espelhados em `ExternalBusy` (único por tenant+`externalId`), ignorando os
+da própria Secretar.ia (`extendedProperties.private.secretariaAppointmentId` ou `externalEventId` conhecido),
+cancelados, `transparency=transparent` e os recusados pelo dono da agenda; evento de dia inteiro ocupa o dia no
+fuso da clínica. `scheduling.busy_between` passa a somar `ExternalBusy`, então `free_slots` (o que a IA
+oferece), `check_availability` (criação manual, salvo `force`) e o calendário semanal (`external`) enxergam os
+bloqueios. Desconectar apaga o espelho; a manutenção diária descarta bloqueios com mais de dois dias passados.
+**Por que não push agora.** `events.watch` exige endpoint público em HTTPS, canais que expiram e precisam de
+renovação, e a notificação não traz o evento — só dispara um `events.list` incremental, exatamente o que o
+polling já faz. Quando a latência de até 10 minutos incomodar, o watch entra como gatilho do mesmo job
+(`enqueue(PULL_CALENDAR)`), sem mudar o modelo.
+**Consequências.** Uma leitura por conexão a cada 10 min (barata: incremental, quase sempre vazia). Escopo
+OAuth `calendar.events` já cobre leitura; conexões existentes não precisam reconectar. Compromissos em outros
+calendários da mesma conta (só `calendarId=primary` é lido) e recorrências com exceções muito distantes ficam
+fora da janela até a próxima leitura completa. Provider console ganha `external_events` e simulação de token
+expirado para testar tudo sem rede.

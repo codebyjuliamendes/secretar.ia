@@ -12,7 +12,7 @@ from app.config import Settings
 from app.db import db
 from app.deps import get_settings_dep
 from app.errors import UnauthorizedError
-from app.jobs.scheduler import run_daily_maintenance
+from app.jobs.scheduler import run_calendar_pulls, run_daily_maintenance
 from app.services.marketing import run_upsell_campaign
 
 router = APIRouter(tags=["internal"])
@@ -54,3 +54,9 @@ async def cron_upsell():
 @cron_router.post("/daily", dependencies=[Depends(require_cron_secret)])
 async def cron_daily():
     return await run_daily_maintenance()
+
+
+@cron_router.post("/pull-calendar", dependencies=[Depends(require_cron_secret)])
+async def cron_pull_calendar():
+    """Enfileira a leitura do Google Calendar de todas as clínicas conectadas (o scheduler interno já faz isso)."""
+    return {"queued": await run_calendar_pulls()}

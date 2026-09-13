@@ -1,15 +1,22 @@
 """Sincronização da agenda da clínica com o Google Calendar do tenant.
 
-Fluxo: OWNER/MANAGER conecta (OAuth) → refresh token cifrado em `CalendarConnection` → cada criação,
-remarcação, confirmação ou cancelamento de agendamento enfileira `sync-calendar` → o job cria/atualiza/apaga
-o evento e guarda `externalEventId` no agendamento. Um refresh token inválido desliga a sincronização e
-avisa a clínica na inbox (nunca falha em silêncio).
+Escrita (Secretar.ia → Google): OWNER/MANAGER conecta (OAuth) → refresh token cifrado em
+`CalendarConnection` → cada criação, remarcação, confirmação ou cancelamento de agendamento enfileira
+`sync-calendar` → o job cria/atualiza/apaga o evento e guarda `externalEventId` no agendamento.
+
+Leitura (Google → Secretar.ia): o job `pull-calendar` (a cada PULL_INTERVAL_MINUTES por conexão, e logo
+após conectar/ressincronizar) lê `events.list` com `syncToken` incremental e espelha em `ExternalBusy` os
+compromissos criados direto no Google; eles bloqueiam horários na disponibilidade da IA e aparecem no
+calendário. Eventos da própria Secretar.ia, cancelados, "livres" (transparent) ou recusados pelo dono da
+agenda não bloqueiam. Token expirado (410) ou leitura completa periódica refaz a janela e remove o que sumiu.
+
+Um refresh token inválido desliga a sincronização e avisa a clínica na inbox (nunca falha em silêncio).
 """
 
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -21,6 +28,7 @@ from app.errors import AppError, ConflictError
 from app.integrations.google_calendar import (
     GoogleAuthExpired,
     GoogleOAuthError,
+    GoogleSyncTokenInvalid,
     build_google_calendar_provider,
     google_enabled,
 )
@@ -33,8 +41,13 @@ log = get_logger("calendar_sync")
 
 STATE_TTL_MINUTES = 15
 SYNC_CALENDAR = "sync-calendar"
+PULL_CALENDAR = "pull-calendar"
 BACKFILL_LIMIT = 200
 EVENT_STATUSES = {"PENDING", "CONFIRMED", "COMPLETED", "NO_SHOW"}  # CANCELED remove o evento
+PULL_INTERVAL_MINUTES = 10
+PULL_WINDOW_PAST_HOURS = 24
+PULL_WINDOW_DAYS = 60
+FULL_PULL_EVERY_HOURS = 24  # a janela de tempo fica presa ao syncToken; refazer a leitura completa periodicamente
 
 
 # ------------------------------- OAuth (connect) -------------------------------
@@ -78,6 +91,7 @@ def connection_view(conn) -> dict[str, Any]:
             "syncEnabled": False,
             "lastSyncAt": None,
             "lastError": None,
+            "lastPullAt": None,
         }
     return {
         "connected": True,
@@ -86,12 +100,14 @@ def connection_view(conn) -> dict[str, Any]:
         "syncEnabled": conn.syncEnabled,
         "lastSyncAt": conn.lastSyncAt.isoformat() if conn.lastSyncAt else None,
         "lastError": conn.lastError,
+        "lastPullAt": conn.lastPullAt.isoformat() if conn.lastPullAt else None,
     }
 
 
 async def status(settings: Settings, tenant_id: str) -> dict[str, Any]:
     conn = await db.calendarconnection.find_unique(where={"tenantId": tenant_id})
-    return {**connection_view(conn), "available": google_enabled(settings)}
+    external = await db.externalbusy.count(where={"tenantId": tenant_id}) if conn else 0
+    return {**connection_view(conn), "available": google_enabled(settings), "externalEvents": external}
 
 
 async def start_connect(settings: Settings, tenant, *, actor_user_id: str, ip: str | None) -> dict[str, str]:
@@ -163,6 +179,7 @@ async def complete_connect(settings: Settings, *, code: str | None, state: str |
         dedupe_minutes=5,
     )
     await backfill(tenant_id)
+    await enqueue(PULL_CALENDAR, {"tenantId": tenant_id})
     return tenant_id
 
 
@@ -176,6 +193,7 @@ async def disconnect(settings: Settings, tenant, *, actor_user_id: str, ip: str 
     except Exception as exc:  # noqa: BLE001 - revogação é cortesia; a conexão local é removida de qualquer forma
         log.warning("google_revoke_skipped", error=str(exc)[:200])
     await db.calendarconnection.delete(where={"id": conn.id})
+    await db.externalbusy.delete_many(where={"tenantId": tenant.id})
     await db.appointment.update_many(where={"tenantId": tenant.id}, data={"externalEventId": None})
     await audit.record(
         action="calendar.disconnected",
@@ -333,6 +351,9 @@ async def resync(settings: Settings, tenant, *, actor_user_id: str, ip: str | No
     if not conn.syncEnabled:
         raise ConflictError("Reconecte o Google Calendar para retomar a sincronização.", code="calendar_disabled")
     queued = await backfill(tenant.id)
+    # Ressincronizar também relê o Google do zero (janela completa), para corrigir qualquer divergência.
+    await db.calendarconnection.update(where={"id": conn.id}, data={"syncToken": None})
+    await enqueue(PULL_CALENDAR, {"tenantId": tenant.id})
     await audit.record(
         action="calendar.resync_requested",
         resource_type="tenant",
@@ -342,4 +363,165 @@ async def resync(settings: Settings, tenant, *, actor_user_id: str, ip: str | No
         metadata={"queued": queued},
         ip=ip,
     )
-    return {"queued": queued}
+    return {"queued": queued, "pullQueued": True}
+
+
+# ---------------------------- Leitura (Google → Secretar.ia) ----------------------------
+
+
+def _is_ours(item: dict, our_ids: set[str]) -> bool:
+    private = (item.get("extendedProperties") or {}).get("private") or {}
+    return bool(private.get("secretariaAppointmentId")) or item.get("id") in our_ids
+
+
+def blocks_time(item: dict) -> bool:
+    """Evento cancelado, marcado como "livre" ou recusado pelo dono da agenda não ocupa horário."""
+    if item.get("status") == "cancelled" or item.get("transparency") == "transparent":
+        return False
+    for attendee in item.get("attendees") or []:
+        if attendee.get("self") and attendee.get("responseStatus") == "declined":
+            return False
+    return True
+
+
+def event_window(item: dict, tz: str) -> tuple[datetime, datetime, bool] | None:
+    """(início UTC, fim UTC, dia inteiro) de um evento do Google; None se não tiver datas utilizáveis."""
+    start, end = item.get("start") or {}, item.get("end") or {}
+    zone = ZoneInfo(tz)
+    if start.get("dateTime") and end.get("dateTime"):
+        s = datetime.fromisoformat(start["dateTime"])
+        e = datetime.fromisoformat(end["dateTime"])
+        if s.tzinfo is None:
+            s = s.replace(tzinfo=ZoneInfo(start.get("timeZone") or tz))
+        if e.tzinfo is None:
+            e = e.replace(tzinfo=ZoneInfo(end.get("timeZone") or tz))
+        return s.astimezone(UTC), e.astimezone(UTC), False
+    if start.get("date") and end.get("date"):
+        sd, ed = date.fromisoformat(start["date"]), date.fromisoformat(end["date"])
+        s = datetime(sd.year, sd.month, sd.day, tzinfo=zone).astimezone(UTC)
+        e = datetime(ed.year, ed.month, ed.day, tzinfo=zone).astimezone(UTC)
+        return s, e, True
+    return None
+
+
+async def _list_all(
+    provider, token: str, conn, *, sync_token: str | None, now: datetime
+) -> tuple[list[dict], str | None]:
+    items: list[dict] = []
+    page_token = None
+    next_sync = None
+    while True:
+        if sync_token:
+            page = await provider.list_events(
+                access_token=token, calendar_id=conn.calendarId, sync_token=sync_token, page_token=page_token
+            )
+        else:
+            page = await provider.list_events(
+                access_token=token,
+                calendar_id=conn.calendarId,
+                time_min=now - timedelta(hours=PULL_WINDOW_PAST_HOURS),
+                time_max=now + timedelta(days=PULL_WINDOW_DAYS),
+                page_token=page_token,
+            )
+        items.extend(page.items)
+        next_sync = page.next_sync_token or next_sync
+        page_token = page.next_page_token
+        if not page_token:
+            return items, next_sync
+
+
+async def _pull(provider, token: str, conn, tenant, now: datetime) -> dict[str, Any]:
+    our_ids = {
+        a.externalEventId
+        for a in await db.appointment.find_many(where={"tenantId": conn.tenantId, "externalEventId": {"not": None}})
+    }
+    stale = conn.lastFullPullAt is None or now - conn.lastFullPullAt > timedelta(hours=FULL_PULL_EVERY_HOURS)
+    full = conn.syncToken is None or stale
+    try:
+        items, next_sync = await _list_all(provider, token, conn, sync_token=None if full else conn.syncToken, now=now)
+    except GoogleSyncTokenInvalid:
+        full = True
+        items, next_sync = await _list_all(provider, token, conn, sync_token=None, now=now)
+    tz = tenant.timezone or "America/Sao_Paulo"
+    upserted = removed = 0
+    seen: set[str] = set()
+    for item in items:
+        eid = item.get("id")
+        if not eid or _is_ours(item, our_ids):
+            continue
+        window = event_window(item, tz)
+        if window is None or not blocks_time(item) or window[1] <= window[0]:
+            removed += await db.externalbusy.delete_many(where={"tenantId": conn.tenantId, "externalId": eid})
+            continue
+        start, end, all_day = window
+        seen.add(eid)
+        data = {"summary": (item.get("summary") or "")[:200] or None, "startAt": start, "endAt": end, "allDay": all_day}
+        await db.externalbusy.upsert(
+            where={"tenantId_externalId": {"tenantId": conn.tenantId, "externalId": eid}},
+            data={"create": {"tenantId": conn.tenantId, "externalId": eid, **data}, "update": data},
+        )
+        upserted += 1
+    if full:
+        # Leitura completa da janela: o que não veio deixou de existir (ou saiu da janela).
+        where: dict[str, Any] = {"tenantId": conn.tenantId}
+        if seen:
+            where["externalId"] = {"not_in": sorted(seen)}
+        removed += await db.externalbusy.delete_many(where=where)
+    update: dict[str, Any] = {"syncToken": next_sync, "lastPullAt": now, "lastError": None}
+    if full:
+        update["lastFullPullAt"] = now
+    await db.calendarconnection.update(where={"id": conn.id}, data=update)
+    return {"status": "ok", "full": full, "upserted": upserted, "removed": removed, "events": len(items)}
+
+
+async def pull_external_events(settings: Settings, *, tenant_id: str) -> dict[str, Any]:
+    """Executado pela fila: espelha em ExternalBusy os compromissos do Google que não são nossos."""
+    conn = await db.calendarconnection.find_unique(where={"tenantId": tenant_id})
+    if conn is None or not conn.syncEnabled:
+        return {"status": "skipped"}
+    tenant = await db.tenant.find_unique(where={"id": tenant_id})
+    if tenant is None:
+        return {"status": "skipped"}
+    provider = build_google_calendar_provider(settings)
+    now = datetime.now(UTC)
+    try:
+        token = await _access_token(settings, provider, conn)
+        try:
+            result = await _pull(provider, token, conn, tenant, now)
+        except GoogleAuthExpired:
+            token = await _refresh_access_token(settings, provider, conn)
+            result = await _pull(provider, token, conn, tenant, now)
+    except GoogleOAuthError as exc:
+        await _disable_connection(conn, f"oauth: {exc}")
+        raise PermanentJobError(f"Google recusou a credencial ({exc}); sincronização desligada") from exc
+    except ValueError as exc:
+        await _disable_connection(conn, "credencial ilegível (chave de criptografia alterada)")
+        raise PermanentJobError(str(exc)) from exc
+    log.info("calendar_pulled", **result)
+    return result
+
+
+async def schedule_pulls() -> int:
+    """Enfileira uma leitura por conexão ativa, sem duplicar se já houver uma pendente/rodando."""
+    conns = await db.calendarconnection.find_many(where={"syncEnabled": True})
+    queued = 0
+    for conn in conns:
+        pending = await db.query_raw(
+            """
+            SELECT 1 FROM "Job"
+            WHERE name = $1 AND status IN ('PENDING', 'RUNNING') AND payload->>'tenantId' = $2
+            LIMIT 1
+            """,
+            PULL_CALENDAR,
+            conn.tenantId,
+        )
+        if pending:
+            continue
+        await enqueue(PULL_CALENDAR, {"tenantId": conn.tenantId})
+        queued += 1
+    return queued
+
+
+async def purge_past_external_busy(now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
+    return await db.externalbusy.delete_many(where={"endAt": {"lt": now - timedelta(days=2)}})

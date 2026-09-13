@@ -195,7 +195,13 @@ async def busy_between(tenant_id: str, start: datetime, end: datetime, *, exclud
     if exclude_id:
         where["id"] = {"not": exclude_id}
     rows = await db.appointment.find_many(where=where)
-    return [Busy(a.date, a.endAt or a.date + timedelta(minutes=a.durationMin or DEFAULT_DURATION_MIN)) for a in rows]
+    busy = [Busy(a.date, a.endAt or a.date + timedelta(minutes=a.durationMin or DEFAULT_DURATION_MIN)) for a in rows]
+    # Compromissos criados direto no Google Calendar da clínica também ocupam horário.
+    external = await db.externalbusy.find_many(
+        where={"tenantId": tenant_id, "startAt": {"lt": end}, "endAt": {"gt": start}}
+    )
+    busy.extend(Busy(x.startAt, x.endAt) for x in external)
+    return busy
 
 
 async def free_slots(
@@ -368,10 +374,23 @@ async def calendar(tenant, *, start: datetime, end: datetime) -> dict:
         order={"date": "asc"},
     )
     rules = await get_rules(tenant.id)
+    external = await db.externalbusy.find_many(
+        where={"tenantId": tenant.id, "startAt": {"lt": end}, "endAt": {"gt": start}}, order={"startAt": "asc"}
+    )
     return {
         "timezone": tenant.timezone,
         "slotMinutes": tenant.slotMinutes,
         "rules": rules_view(rules),
+        "external": [
+            {
+                "id": x.id,
+                "summary": x.summary,
+                "start": x.startAt.isoformat(),
+                "end": x.endAt.isoformat(),
+                "allDay": x.allDay,
+            }
+            for x in external
+        ],
         "appointments": [
             {
                 "id": a.id,

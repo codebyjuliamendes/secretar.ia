@@ -1,7 +1,7 @@
 """Agendador leve em processo (substitui dependência de cron externo).
 
-Usa advisory lock do PostgreSQL para que apenas uma réplica dispare cada rotina diária.
-O endpoint /api/internal/cron/* continua disponível para orquestradores externos.
+Usa advisory lock do PostgreSQL para que apenas uma réplica dispare cada rotina (diária e leitura periódica
+do Google Calendar). Os endpoints /api/internal/cron/* continuam disponíveis para orquestradores externos.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from app.security.ratelimit import purge_expired_buckets
 log = get_logger("jobs.scheduler")
 
 LOCK_KEY_DAILY = 7_401_001
+LOCK_KEY_PULL = 7_401_002
 DAILY_HOUR_UTC = 12  # 09:00 America/Sao_Paulo
 
 
@@ -41,9 +42,13 @@ async def run_daily_maintenance() -> dict:
         where={"status": {"in": ["COMPLETED"]}, "updatedAt": {"lt": now - timedelta(days=7)}}
     )
     removed_buckets = await purge_expired_buckets()
+    from app.services.calendar_sync import purge_past_external_busy
+
+    removed_external = await purge_past_external_busy(now)
     result = {
         "processedMessagesRemoved": removed_msgs,
         "rateLimitBucketsRemoved": removed_buckets,
+        "externalBusyRemoved": removed_external,
         "refreshTokensRemoved": removed_tokens,
         "verificationTokensRemoved": removed_verif,
         "jobsRemoved": removed_jobs,
@@ -52,9 +57,18 @@ async def run_daily_maintenance() -> dict:
     return result
 
 
+async def run_calendar_pulls() -> int:
+    from app.services.calendar_sync import schedule_pulls
+
+    return await schedule_pulls()
+
+
 async def scheduler_loop(stop: asyncio.Event) -> None:
+    from app.services.calendar_sync import PULL_INTERVAL_MINUTES
+
     last_run_day: str | None = None
-    log.info("scheduler_started", daily_hour_utc=DAILY_HOUR_UTC)
+    last_pull: datetime | None = None
+    log.info("scheduler_started", daily_hour_utc=DAILY_HOUR_UTC, pull_interval_min=PULL_INTERVAL_MINUTES)
     while not stop.is_set():
         try:
             now = datetime.now(UTC)
@@ -66,6 +80,15 @@ async def scheduler_loop(stop: asyncio.Event) -> None:
                     finally:
                         await _unlock(LOCK_KEY_DAILY)
                 last_run_day = today
+            if last_pull is None or now - last_pull >= timedelta(minutes=PULL_INTERVAL_MINUTES):
+                if await _try_lock(LOCK_KEY_PULL):
+                    try:
+                        queued = await run_calendar_pulls()
+                        if queued:
+                            log.info("calendar_pulls_scheduled", queued=queued)
+                    finally:
+                        await _unlock(LOCK_KEY_PULL)
+                last_pull = now
         except Exception as exc:  # noqa: BLE001
             log.error("scheduler_error", error=str(exc), exc_info=exc)
         try:
