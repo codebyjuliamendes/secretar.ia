@@ -86,7 +86,7 @@ export function AppShell({
         </Link>
         {me.memberships.length > 1 ? (
           <Select
-            aria-label="Trocar clínica"
+            aria-label={me.memberships.some((m) => m.tenant.parentTenantId) ? "Trocar unidade" : "Trocar conta"}
             className="mt-3 text-xs"
             value={tenant.id}
             onChange={(e) => {

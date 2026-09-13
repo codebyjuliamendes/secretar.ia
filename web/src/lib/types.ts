@@ -14,6 +14,7 @@ export interface MembershipSummary {
     status: TenantStatus;
     plan: Plan;
     whatsappConnected: boolean;
+    parentTenantId?: string | null;
   };
 }
 
@@ -194,6 +195,7 @@ export interface Appointment {
   depositStatus?: string;
   reminderSentAt?: string | null;
   professionalId?: string | null;
+  professionalName?: string | null;
   createdAt: string;
   patient: { id: string; name: string | null; phone: string } | null;
 }
@@ -404,4 +406,11 @@ export interface AdminHealth {
   nearLimit: HealthItem[];
   expiring: HealthItem[];
   pending: HealthItem[];
+}
+
+export interface Professional {
+  id: string;
+  name: string;
+  active: boolean;
+  sortOrder: number;
 }

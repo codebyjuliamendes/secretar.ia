@@ -313,6 +313,13 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
 async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_user_id: str, ip: str | None) -> dict:
     tenant = await get_tenant_or_404(tenant_id)
     payload = {k: v for k, v in data.items() if v is not None or k == "paidUntil"}  # paidUntil=null limpa
+    if "parentTenantId" in payload:
+        parent = payload["parentTenantId"] or None
+        if parent == tenant_id:
+            raise ConflictError("Uma conta não pode ser a própria principal.", code="invalid_parent")
+        if parent and await db.tenant.find_unique(where={"id": parent}) is None:
+            raise ConflictError("Conta principal não encontrada.", code="invalid_parent")
+        payload["parentTenantId"] = parent
     if "status" in payload and payload["status"] not in ALLOWED_TENANT_STATUSES:
         raise ConflictError("Status inválido.", code="invalid_status")
     if "niche" in payload and payload["niche"] not in NICHES:

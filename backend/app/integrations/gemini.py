@@ -78,6 +78,30 @@ class GeminiClient:
         }
         return await self._generate(body)
 
+    async def synthesize_speech(self, text: str, *, voice: str = "Kore") -> tuple[bytes, str]:
+        """Texto → fala (PCM 16 bits, 24 kHz por padrão). Retorna (bytes, mime informado pelo modelo)."""
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": text}]}],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
+            },
+        }
+        url = f"{_BASE}/{self.model}:generateContent"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(url, params={"key": self._key}, json=body)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise AIProviderError(f"Gemini TTS indisponível: {exc.__class__.__name__}") from exc
+        if resp.status_code != 200:
+            raise AIProviderError(f"Gemini TTS respondeu {resp.status_code}")
+        try:
+            parts = resp.json()["candidates"][0]["content"]["parts"]
+            inline = next(p["inlineData"] for p in parts if isinstance(p, dict) and p.get("inlineData"))
+            return base64.b64decode(inline["data"]), str(inline.get("mimeType") or "audio/L16;rate=24000")
+        except (KeyError, IndexError, TypeError, ValueError, StopIteration) as exc:
+            raise AIProviderError("Resposta do Gemini TTS sem áudio") from exc
+
     async def embed(self, texts: list[str], *, model: str, task_type: str, dims: int) -> list[list[float]]:
         """Embeddings em lote (batchEmbedContents). Mantém a ordem de `texts`."""
         if not texts:

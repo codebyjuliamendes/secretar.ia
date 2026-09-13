@@ -43,6 +43,7 @@ class TenantUpdateIn(BaseModel):
     paymentMethod: Literal["", "PIX", "BOLETO", "STRIPE", "OUTRO"] | None = None
     billingNote: str | None = Field(default=None, max_length=500)
     billingCycle: Literal["MONTHLY", "ANNUAL"] | None = None
+    parentTenantId: str | None = Field(default=None, max_length=64)  # grupo de unidades; "" limpa
 
 
 @router.get("/niches")

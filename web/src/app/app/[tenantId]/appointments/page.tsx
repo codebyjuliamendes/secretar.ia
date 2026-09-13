@@ -89,7 +89,7 @@ function AppointmentsInner() {
                     <p className="font-medium">{a.patient?.name ?? "Sem nome"}</p>
                     <p className="text-xs text-muted">{a.patient ? formatPhone(a.patient.phone) : "—"}</p>
                   </Td>
-                  <Td>{a.service}{a.source === "AI" && <span className="ml-1 text-xs text-primary">via IA</span>}</Td>
+                  <Td>{a.service}{a.professionalName && <span className="block text-xs text-muted">com {a.professionalName}</span>}{a.source === "AI" && <span className="ml-1 text-xs text-primary">via IA</span>}{a.source === "WEB" && <span className="ml-1 text-xs text-primary">via link</span>}</Td>
                   <Td className="whitespace-nowrap">{formatDateTime(a.date)}</Td>
                   <Td>{a.durationMin} min</Td>
                   <Td>{a.priceCents != null ? brl(a.priceCents) : "—"}</Td>

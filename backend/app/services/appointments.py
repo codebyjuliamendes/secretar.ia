@@ -36,6 +36,7 @@ def appointment_view(a) -> dict:
         "depositStatus": getattr(a, "depositStatus", "") or "",
         "reminderSentAt": a.reminderSentAt.isoformat() if getattr(a, "reminderSentAt", None) else None,
         "professionalId": getattr(a, "professionalId", None),
+        "professionalName": a.professional.name if getattr(a, "professional", None) else None,
         "createdAt": a.createdAt.isoformat(),
         "patient": {"id": a.patient.id, "name": a.patient.name, "phone": a.patient.phone} if a.patient else None,
     }
@@ -68,7 +69,7 @@ async def list_appointments(
         ]
     total = await db.appointment.count(where=where)
     rows = await db.appointment.find_many(
-        where=where, include={"patient": True}, order={"date": "desc"}, take=limit, skip=offset
+        where=where, include={"patient": True, "professional": True}, order={"date": "desc"}, take=limit, skip=offset
     )
     return {"items": [appointment_view(a) for a in rows], "total": total, "limit": limit, "offset": offset}
 
@@ -88,8 +89,11 @@ async def create_manual(
     actor_user_id: str,
     ip: str | None,
     plan: str,
+    professional_id: str | None = None,
 ) -> dict:
     tenant_id = tenant.id
+    if professional_id and not await db.professional.find_first(where={"id": professional_id, "tenantId": tenant_id}):
+        raise NotFoundError("Profissional não encontrado.")
     svc = None
     if service_id:
         svc = await db.service.find_first(where={"id": service_id, "tenantId": tenant_id})
@@ -100,7 +104,7 @@ async def create_manual(
         price_cents = svc.priceCents
     service_name = (svc.name if svc else service).strip()[:120]
     if not force:
-        available, reason = await scheduling.check_availability(tenant, date, duration)
+        available, reason = await scheduling.check_availability(tenant, date, duration, professional_id=professional_id)
         if not available and reason != "past":
             detail = "conflito com outro agendamento." if reason == "conflict" else "fora do horário de atendimento."
             raise ConflictError(f"Horário indisponível: {detail}", code="slot_unavailable", details={"reason": reason})
@@ -122,7 +126,9 @@ async def create_manual(
         await scheduling.lock_tenant_agenda(tx, tenant_id)
         if not force:
             # Reverifica sob a trava: outro clique/mensagem pode ter ocupado o horário entre a checagem e aqui.
-            available, reason = await scheduling.check_availability(tenant, date, duration)
+            available, reason = await scheduling.check_availability(
+                tenant, date, duration, professional_id=professional_id
+            )
             if not available and reason != "past":
                 raise ConflictError(
                     "Horário indisponível: acabou de ser ocupado.", code="slot_unavailable", details={"reason": reason}
@@ -140,8 +146,9 @@ async def create_manual(
                 "priceCents": price_cents,
                 "notes": notes,
                 "source": "MANUAL",
+                "professionalId": professional_id,
             },
-            include={"patient": True},
+            include={"patient": True, "professional": True},
         )
     await audit.record(
         action="appointment.created",

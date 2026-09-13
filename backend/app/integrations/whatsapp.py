@@ -43,6 +43,10 @@ class MediaPayload:
 class WhatsAppProvider:
     async def send_text(self, instance: str, phone: str, text: str) -> str: ...
 
+    async def send_audio(self, instance: str, phone: str, audio_base64: str, mime_type: str) -> str:
+        """Áudio (nota de voz). Providers sem suporte levantam IntegrationUnavailableError; quem chama cai em texto."""
+        raise IntegrationUnavailableError("Este provedor não envia áudio.", code="whatsapp_audio_unsupported")
+
     async def create_instance(self, instance: str, webhook_url: str) -> ConnectionInfo: ...
 
     async def connection_state(self, instance: str) -> ConnectionInfo: ...
@@ -60,6 +64,10 @@ class ConsoleWhatsAppProvider(WhatsAppProvider):
     async def send_text(self, instance: str, phone: str, text: str) -> str:
         log.info("whatsapp_console_send", instance=instance, phone=phone, text=text)
         return f"console-{instance}-{phone}"
+
+    async def send_audio(self, instance: str, phone: str, audio_base64: str, mime_type: str) -> str:
+        log.info("whatsapp_console_send_audio", instance=instance, phone=phone, bytes=len(audio_base64) * 3 // 4)
+        return f"console-audio-{instance}-{phone}"
 
     async def create_instance(self, instance: str, webhook_url: str) -> ConnectionInfo:
         # QR ilustrativo apenas em desenvolvimento (PNG 1x1). Em produção este provider não é usado.
@@ -105,6 +113,13 @@ class EvolutionWhatsAppProvider(WhatsAppProvider):
 
     async def send_text(self, instance: str, phone: str, text: str) -> str:
         data = await self._request("POST", f"/message/sendText/{instance}", {"number": phone, "text": text})
+        return str((data.get("key") or {}).get("id") or data.get("messageId") or "")
+
+    async def send_audio(self, instance: str, phone: str, audio_base64: str, mime_type: str) -> str:
+        # Evolution converte para o formato de nota de voz do WhatsApp quando encoding=true.
+        data = await self._request(
+            "POST", f"/message/sendWhatsAppAudio/{instance}", {"number": phone, "audio": audio_base64, "encoding": True}
+        )
         return str((data.get("key") or {}).get("id") or data.get("messageId") or "")
 
     async def create_instance(self, instance: str, webhook_url: str) -> ConnectionInfo:

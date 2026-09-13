@@ -7,7 +7,7 @@ import { Alert, Button, Field, Input, Select } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { localInputToUtc, utcToLocalInput } from "@/lib/tz";
-import type { Service } from "@/lib/types";
+import type { Professional, Service } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
 export function NewAppointmentModal({
@@ -34,6 +34,9 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
   const toast = useToast();
   const { data: servicesData } = useQuery(() => api.get<{ items: Service[] }>(`clinic/${tenant.id}/services`, { active: true }), [tenant.id]);
   const services = servicesData?.items ?? [];
+  const { data: prosData } = useQuery(() => api.get<{ items: Professional[] }>(`clinic/${tenant.id}/professionals`, { active: true }), [tenant.id]);
+  const pros = prosData?.items ?? [];
+  const [professionalId, setProfessionalId] = useState("");
   const [form, setForm] = useState(() => ({
     phone: "",
     patientName: "",
@@ -68,6 +71,7 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
         patientName: form.patientName || null,
         service: form.service,
         serviceId: form.serviceId || null,
+        professionalId: professionalId || null,
         date: localInputToUtc(form.date, tz).toISOString(), // horário digitado é no fuso da clínica
         durationMin: Number(form.duration) || null,
         priceCents: form.price ? Math.round(Number(form.price.replace(",", ".")) * 100) : null,
@@ -104,6 +108,16 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
               <option value="">Outro (digitar)</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>{s.name} · {s.durationMin} min</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {pros.length > 0 && (
+          <Field label="Profissional" htmlFor="professionalId" hint="Opcional. Cada profissional tem a própria agenda.">
+            <Select id="professionalId" value={professionalId} onChange={(e) => setProfessionalId(e.target.value)}>
+              <option value="">Qualquer</option>
+              {pros.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
           </Field>

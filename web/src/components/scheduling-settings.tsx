@@ -7,7 +7,7 @@ import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Selec
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { brl } from "@/lib/format";
-import type { AvailabilityRule, Service } from "@/lib/types";
+import type { AvailabilityRule, Professional, Service } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
 const DAYS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
@@ -301,5 +301,88 @@ function ImportServicesModal({ open, onClose, onImported }: { open: boolean; onC
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Profissionais: "quero com a Paula". Com N ativos, a agenda aceita N atendimentos ao mesmo tempo. */
+export function ProfessionalsCard({ canManage }: { canManage: boolean }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const { data, error, loading, refetch } = useQuery(() => api.get<{ items: Professional[] }>(`clinic/${tenant.id}/professionals`), [tenant.id]);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post(`clinic/${tenant.id}/professionals`, { name: name.trim() });
+      setName("");
+      toast.success("Profissional adicionado.");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggle(p: Professional) {
+    setBusy(p.id);
+    try {
+      await api.patch(`clinic/${tenant.id}/professionals/${p.id}`, { active: !p.active });
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(p: Professional) {
+    setBusy(p.id);
+    try {
+      await api.delete(`clinic/${tenant.id}/professionals/${p.id}`);
+      toast.success("Profissional removido. Os agendamentos dele ficam na agenda.");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card title="Profissionais">
+      <p className="mb-3 text-sm text-muted">Opcional. Cadastre quem atende para a assistente aceitar “quero com a Paula” e para a agenda permitir um atendimento por profissional no mesmo horário.</p>
+      {error ? (
+        <ErrorState message={error} onRetry={refetch} />
+      ) : loading || !data ? (
+        <Skeleton className="h-16" />
+      ) : data.items.length === 0 ? (
+        <p className="text-sm text-muted">Nenhum profissional cadastrado: a agenda funciona como uma só.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.items.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+              <span className="flex items-center gap-2"><span className="font-medium">{p.name}</span><Badge tone={p.active ? "success" : "neutral"}>{p.active ? "ativo" : "inativo"}</Badge></span>
+              {canManage && (
+                <span className="flex gap-1">
+                  <Button size="sm" variant="secondary" onClick={() => toggle(p)} loading={busy === p.id}>{p.active ? "Desativar" : "Ativar"}</Button>
+                  <Button size="sm" variant="danger" onClick={() => remove(p)} loading={busy === p.id}>Remover</Button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        <form onSubmit={add} className="mt-4 flex gap-2">
+          <Input aria-label="Nome do profissional" placeholder="Nome, ex.: Paula" value={name} onChange={(e) => setName(e.target.value)} minLength={2} required />
+          <Button type="submit" loading={saving}>Adicionar</Button>
+        </form>
+      )}
+    </Card>
   );
 }

@@ -13,9 +13,9 @@ from app.domain.intents import Intent
 from app.domain.niches import fill, niche_for
 from app.domain.plans import feature_enabled, limits_for, within_limit
 from app.jobs.queue import enqueue
-from app.jobs.tasks import SEND_WHATSAPP
+from app.jobs.tasks import SEND_WHATSAPP, SEND_WHATSAPP_AUDIO
 from app.logging import get_logger, tenant_id_var
-from app.services import calendar_sync, engagement, knowledge, notifications, quota_alerts, scheduling
+from app.services import calendar_sync, engagement, knowledge, notifications, professionals, quota_alerts, scheduling
 from app.services import media as media_service
 from app.services.ai import UNKNOWN_INFO_REPLY, AIDecision, AIService
 from app.services.tenants import is_tenant_operational
@@ -121,7 +121,14 @@ async def _get_or_create_patient(tenant, phone: str, push_name: str | None):
 
 
 async def _apply_actions(
-    tenant, patient, decision: AIDecision, phone: str, text: str, upcoming: list[dict], services: list[dict]
+    tenant,
+    patient,
+    decision: AIDecision,
+    phone: str,
+    text: str,
+    upcoming: list[dict],
+    services: list[dict],
+    pros: list[dict] | None = None,
 ) -> None:
     name = patient.name or phone
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
@@ -136,7 +143,11 @@ async def _apply_actions(
     if decision.intent == Intent.SCHEDULE and decision.appointment_datetime and decision.appointment_service:
         svc = scheduling.match_service(services, decision.appointment_service)
         duration = (svc or {}).get("durationMin") or scheduling.DEFAULT_DURATION_MIN
-        available, reason = await scheduling.check_availability(tenant, decision.appointment_datetime, duration)
+        pro = professionals.match_professional(pros or [], decision.appointment_professional)
+        pro_id = pro["id"] if pro else None
+        available, reason = await scheduling.check_availability(
+            tenant, decision.appointment_datetime, duration, professional_id=pro_id
+        )
         if not available:
             # Nunca criamos um horário indisponível: respondemos com alternativas reais.
             tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
@@ -146,6 +157,7 @@ async def _apply_actions(
                 days=7,
                 duration_min=duration,
                 limit=3,
+                professional_id=pro_id,
             )
             alt_txt = ", ".join(s.label(tz) for s in alternatives)
             decision.reply = "Esse horário não está disponível. " + (
@@ -160,7 +172,9 @@ async def _apply_actions(
         async with db.tx() as tx:
             await scheduling.lock_tenant_agenda(tx, tenant.id)
             # Sob a trava: outra mensagem pode ter ocupado o slot entre a checagem acima e aqui.
-            available, reason = await scheduling.check_availability(tenant, decision.appointment_datetime, duration)
+            available, reason = await scheduling.check_availability(
+                tenant, decision.appointment_datetime, duration, professional_id=pro_id
+            )
             if not available:
                 decision.reply = "Esse horário acabou de ser ocupado. Pode me dizer outro horário de sua preferência?"
                 decision.extra["availability"] = reason
@@ -177,6 +191,7 @@ async def _apply_actions(
                     "priceCents": (svc or {}).get("priceCents"),
                     "status": "PENDING",
                     "source": "AI",
+                    "professionalId": pro_id,
                 }
             )
         deposit = engagement.deposit_text(tenant)
@@ -187,7 +202,9 @@ async def _apply_actions(
             tenant.id,
             type_="APPOINTMENT_REQUESTED",
             title=f"Novo pedido de agendamento: {name}",
-            body=f"{appt.service} em {_local(appt.date, tz)} (aguardando confirmação"
+            body=f"{appt.service} em {_local(appt.date, tz)}"
+            + (f" com {pro['name']}" if pro else "")
+            + " (aguardando confirmação"
             + ("; sinal por Pix solicitado)." if deposit else ")."),
             phone=phone,
         )
@@ -393,6 +410,7 @@ async def _process(
     history = await _history(tenant.id, phone)
     upcoming = await _upcoming(tenant.id, patient.id, tz)
     services = await scheduling.list_services(tenant.id, only_active=True)
+    pros = await professionals.list_professionals(tenant.id, only_active=True)
     rules = await scheduling.get_rules(tenant.id)
     # Sugestões espalhadas em vários dias (2 por dia), não seis horários seguidos da mesma manhã.
     slots = scheduling.spread_slots(await scheduling.free_slots(tenant, days=7, limit=80), tz, per_day=2, limit=6)
@@ -407,11 +425,12 @@ async def _process(
         free_slots_text=", ".join(s.label(tz) for s in slots) if slots else None,
         knowledge_text=knowledge.snippets_to_text(snippets),
         knowledge_snippet=snippets[0].content[:350].strip() if snippets else None,
+        professionals_text=professionals.professionals_text(pros),
     )
     if snippets:
         decision.extra["knowledge"] = [s.title for s in snippets]
 
-    await _apply_actions(tenant, patient, decision, phone, text, upcoming, services)
+    await _apply_actions(tenant, patient, decision, phone, text, upcoming, services, pros)
     if decision.reply.startswith(UNKNOWN_INFO_REPLY[:40]) or (decision.needs_human and decision.intent == Intent.INFO):
         # A assistente não soube: vira sugestão de melhoria da base (ideia 7), sem travar a resposta.
         await engagement.record_unanswered(tenant.id, phone, text)
@@ -443,6 +462,9 @@ async def _process(
     if first_contact and tenant.introEnabled:
         # Primeiro contato: a assistente diz que é assistente e que a equipe acompanha (sem "robô escondido").
         reply = fill(niche_for(tenant.niche).intro, tenant.name) + "\n\n" + reply
-    await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
+    voice_reply = tenant.voiceReplies and media is not None and media.kind == "audio" and not decision.degraded
+    await enqueue(
+        SEND_WHATSAPP_AUDIO if voice_reply else SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply}
+    )
     log.info("inbound_processed", intent=decision.intent.value, degraded=decision.degraded, source=source)
     return InboundResult(status="processed", intent=decision.intent.value, reply=reply, degraded=decision.degraded)

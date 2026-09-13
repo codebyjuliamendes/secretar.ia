@@ -291,6 +291,7 @@ async def me(user_id: str) -> dict:
                     "status": str(m.tenant.status),
                     "plan": str(m.tenant.plan),
                     "whatsappConnected": m.tenant.whatsappConnected,
+                    "parentTenantId": m.tenant.parentTenantId,
                 },
             }
             for m in (user.memberships or [])

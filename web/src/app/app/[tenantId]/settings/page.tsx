@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings";
+import { AvailabilityCard, ProfessionalsCard, ServicesCard } from "@/components/scheduling-settings";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
@@ -27,6 +27,7 @@ export default function SettingsPage() {
           <div className="space-y-4 lg:col-span-2">
             <AssistantForm settings={data} canManage={canManage} onSaved={async () => { await Promise.all([refetch(), reload()]); }} />
             <ServicesCard canManage={canManage} />
+            <ProfessionalsCard canManage={canManage} />
             <AvailabilityCard canManage={canManage} />
             <KnowledgeCard canManage={canManage} access={data.featureAccess} />
             <UpsellForm settings={data} canManage={canManage} onSaved={refetch} />

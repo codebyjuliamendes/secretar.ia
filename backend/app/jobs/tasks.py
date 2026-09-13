@@ -21,6 +21,7 @@ SYNC_CALENDAR = "sync-calendar"
 PULL_CALENDAR = "pull-calendar"
 MONTHLY_REPORTS = "monthly-reports"
 SEND_REMINDERS = "send-reminders"
+SEND_WHATSAPP_AUDIO = "send-whatsapp-audio"
 
 
 @register_task(SEND_WHATSAPP)
@@ -42,6 +43,41 @@ async def send_whatsapp(payload: dict[str, Any]) -> None:
         raise PermanentJobError(exc.message) from exc
     except (WhatsAppRateLimited, WhatsAppTransientError):
         raise  # retentável com backoff
+
+
+@register_task(SEND_WHATSAPP_AUDIO)
+async def send_whatsapp_audio(payload: dict[str, Any]) -> None:
+    """Fala a resposta; se a voz falhar por qualquer motivo, manda o texto (ninguém fica sem resposta)."""
+    from app.services import voice
+
+    tenant_id, phone, text = payload.get("tenantId"), payload.get("phone"), payload.get("text")
+    if not (tenant_id and phone and text):
+        raise PermanentJobError("payload incompleto para send-whatsapp-audio")
+    tenant = await db.tenant.find_unique(where={"id": tenant_id})
+    if tenant is None:
+        raise PermanentJobError("tenant inexistente")
+    settings = get_settings()
+    instance = tenant.whatsappInstance or (tenant.id if not settings.is_production_like else None)
+    if not instance:
+        raise PermanentJobError("tenant sem instância de WhatsApp conectada")
+    try:
+        provider = build_whatsapp_provider(settings)
+    except IntegrationUnavailableError as exc:
+        raise PermanentJobError(exc.message) from exc
+    audio = await voice.synthesize(settings, text)
+    if audio is not None:
+        try:
+            await provider.send_audio(instance, phone, audio[0], audio[1])
+            log.info("whatsapp_audio_sent", tenant_id=tenant_id)
+            return
+        except IntegrationUnavailableError as exc:
+            log.warning("whatsapp_audio_unsupported", error=exc.message)
+        except (WhatsAppRateLimited, WhatsAppTransientError):
+            raise  # retentável com backoff; o texto só sai se a voz desistir de vez
+    try:
+        await provider.send_text(instance, phone, text)
+    except IntegrationUnavailableError as exc:
+        raise PermanentJobError(exc.message) from exc
 
 
 @register_task(SEND_EMAIL)

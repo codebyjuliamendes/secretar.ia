@@ -107,7 +107,7 @@ export default function AdminTenantsPage() {
         </>
       )}
       <CreateTenantModal open={modal} onClose={() => setModal(false)} onCreated={() => { setModal(false); void refetch(); }} />
-      <TenantDetailModal tenant={detail} onClose={() => setDetail(null)} onChanged={async () => { await refetch(); }} />
+      <TenantDetailModal tenant={detail} others={data?.items ?? []} onClose={() => setDetail(null)} onChanged={async () => { await refetch(); }} />
     <ConfirmDialog
         open={!!confirmStatus}
         onClose={() => setConfirmStatus(null)}
@@ -156,7 +156,7 @@ type WelcomeResult = { emails: string[]; sentAt: string; whatsappLink: string | 
 type ReportResult = { period: string; emails: string[]; data: Record<string, number> };
 
 /** Tudo que a Júlia faz com uma conta além de plano/status/nicho: checklist, boas-vindas, cobrança e relatório. */
-function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant | null; onClose: () => void; onChanged: () => Promise<void> }) {
+function TenantDetailModal({ tenant, others, onClose, onChanged }: { tenant: AdminTenant | null; others: AdminTenant[]; onClose: () => void; onChanged: () => Promise<void> }) {
   const toast = useToast();
   const [busy, setBusy] = useState<"welcome" | "billing" | "report" | null>(null);
   const [welcome, setWelcome] = useState<WelcomeResult | null>(null);
@@ -271,7 +271,14 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
         <section>
           <h3 className="text-sm font-semibold">Indicação</h3>
           <p className="mt-1 text-sm text-muted">Código <span className="font-mono font-medium text-foreground">{tenant.referralCode ?? "—"}</span> · indicou {tenant.referralsCount} conta(s){tenant.referredByName ? ` · indicada por ${tenant.referredByName}` : ""}. O desconto de quem indica você registra em “Cobrança” (observação).</p>
-          {tenant.groupName && <p className="mt-1 text-xs text-muted">Unidade do grupo {tenant.groupName}.</p>}
+          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <Field label="Unidade de (conta principal)" htmlFor="parent" hint="Para redes com mais de uma unidade: cada unidade tem WhatsApp e agenda próprios; o dono troca de unidade no menu.">
+              <Select id="parent" value={tenant.parentTenantId ?? ""} onChange={async (e) => { try { await api.patch(`admin/tenants/${tenant.id}`, { parentTenantId: e.target.value }); toast.success("Grupo atualizado."); await onChanged(); } catch (err) { toast.error(errorMessage(err)); } }}>
+                <option value="">Conta independente</option>
+                {others.filter((o) => o.id !== tenant.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </Select>
+            </Field>
+          </div>
         </section>
 
         <section>

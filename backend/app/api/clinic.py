@@ -362,6 +362,7 @@ async def google_calendar_resync(
 class AppointmentCreateIn(BaseModel):
     phone: str = Field(min_length=8, max_length=32)
     patientName: str | None = Field(default=None, max_length=120)
+    professionalId: str | None = Field(default=None, max_length=64)
     service: str = Field(min_length=2, max_length=120)
     serviceId: str | None = Field(default=None, max_length=64)
     date: AwareDatetime
@@ -422,6 +423,7 @@ async def create_appointment(
         price_cents=data.priceCents,
         notes=data.notes,
         force=data.force,
+        professional_id=data.professionalId,
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
         plan=str(ctx.tenant.plan),
@@ -587,6 +589,69 @@ async def export_appointments(ctx: TenantContext = Depends(require_permission(Pe
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="agendamentos.csv"'},
     )
+
+
+class ProfessionalIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    active: bool = True
+    sortOrder: int = Field(default=0, ge=0, le=1000)
+
+
+class ProfessionalUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    active: bool | None = None
+    sortOrder: int | None = Field(default=None, ge=0, le=1000)
+
+
+@router.get("/professionals")
+async def list_professionals(
+    active: bool = Query(default=False),
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW)),
+):
+    from app.services import professionals
+
+    return {"items": await professionals.list_professionals(ctx.tenant_id, only_active=active)}
+
+
+@router.post("/professionals", status_code=status.HTTP_201_CREATED)
+async def create_professional(
+    data: ProfessionalIn, request: Request, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    from app.services import professionals
+
+    return await professionals.create_professional(
+        ctx.tenant_id, data.model_dump(), actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
+@router.patch("/professionals/{professional_id}")
+async def update_professional(
+    professional_id: str,
+    data: ProfessionalUpdateIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+):
+    from app.services import professionals
+
+    return await professionals.update_professional(
+        ctx.tenant_id,
+        professional_id,
+        data.model_dump(exclude_unset=True),
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+
+
+@router.delete("/professionals/{professional_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_professional(
+    professional_id: str, request: Request, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    from app.services import professionals
+
+    await professionals.delete_professional(
+        ctx.tenant_id, professional_id, actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+    return None
 
 
 @router.get("/services")
