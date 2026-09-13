@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db import db
-from app.domain.niches import NICHES, niche_for, niche_view
+from app.domain.niches import NICHES, fill, niche_for, niche_view
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
@@ -38,6 +38,8 @@ def tenant_settings_view(t) -> dict:
         "upsellEnabled": t.upsellEnabled,
         "upsellMessage": t.upsellMessage,
         "upsellDays": t.upsellDays,
+        "introEnabled": t.introEnabled,
+        "introPreview": fill(niche_for(t.niche).intro, t.name),
         "slotMinutes": t.slotMinutes,
         "features": t.features or {},
         "featureAccess": feature_access_view(t),
@@ -94,10 +96,12 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
     rows = await db.query_raw(
         """
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
-               t."whatsappConnected", t."createdAt",
+               t."whatsappConnected", t."createdAt", t."hardLimit",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
-               COALESCE(m.cnt, 0) AS "memberCount"
+               COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth"
         FROM "Tenant" t
+        LEFT JOIN "UsageCounter" u ON u."tenantId" = t.id AND u.metric = 'ai_messages'
+                                   AND u.period = to_char(NOW(), 'YYYY-MM')
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Appointment" GROUP BY "tenantId") a ON a."tenantId" = t.id
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Patient" GROUP BY "tenantId") p ON p."tenantId" = t.id
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Membership" GROUP BY "tenantId") m ON m."tenantId" = t.id
@@ -126,6 +130,9 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "appointmentCount": int(r["appointmentCount"] or 0),
                 "patientCount": int(r["patientCount"] or 0),
                 "memberCount": int(r["memberCount"] or 0),
+                "aiMessagesThisMonth": int(r["aiMessagesThisMonth"] or 0),
+                "aiMessagesLimit": limits_for(r["plan"]).ai_messages_per_month,
+                "hardLimit": bool(r["hardLimit"]),
             }
         )
     return {"items": items, "total": total, "limit": limit, "offset": offset}

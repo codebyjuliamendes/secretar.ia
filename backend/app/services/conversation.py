@@ -10,11 +10,12 @@ from zoneinfo import ZoneInfo
 from app.config import Settings
 from app.db import db
 from app.domain.intents import Intent
+from app.domain.niches import fill, niche_for
 from app.domain.plans import feature_enabled, limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
-from app.services import calendar_sync, knowledge, notifications, scheduling
+from app.services import calendar_sync, knowledge, notifications, quota_alerts, scheduling
 from app.services import media as media_service
 from app.services.ai import AIDecision, AIService
 from app.services.tenants import is_tenant_operational
@@ -287,17 +288,14 @@ async def _process(
 
     ok, used, limit = await ai_quota_available(tenant.id, str(tenant.plan))
     if not ok:
-        log.warning("inbound_quota_exceeded", used=used, limit=limit)
-        await notifications.notify(
-            tenant.id,
-            type_="BILLING",
-            title="Limite mensal de mensagens atingido",
-            body=f"O plano {tenant.plan} permite {limit} mensagens/mês. Faça upgrade para continuar respondendo.",
-            dedupe_minutes=24 * 60,
-        )
-        return InboundResult(status="blocked", reason="quota_exceeded")
+        # Estourar a cota não corta o atendimento (decisão de produto): só corta se o admin ligou hardLimit.
+        if tenant.hardLimit:
+            log.warning("inbound_quota_exceeded", used=used, limit=limit)
+            return InboundResult(status="blocked", reason="quota_exceeded")
+        log.info("inbound_over_quota", used=used, limit=limit)
 
     patient_limit = limits_for(str(tenant.plan)).max_patients
+    first_contact = False
     patient = await db.patient.find_unique(where={"tenantId_phone": {"tenantId": tenant.id, "phone": phone}})
     if patient is None:
         count = await db.patient.count(where={"tenantId": tenant.id})
@@ -310,7 +308,7 @@ async def _process(
                 dedupe_minutes=24 * 60,
             )
             return InboundResult(status="blocked", reason="patient_limit")
-        patient, _ = await _get_or_create_patient(tenant, phone, push_name)
+        patient, first_contact = await _get_or_create_patient(tenant, phone, push_name)
     elif push_name and not patient.name:
         patient = await db.patient.update(where={"id": patient.id}, data={"name": push_name.strip()[:120]})
 
@@ -420,9 +418,12 @@ async def _process(
     )
     if not decision.degraded:
         # A quota do plano conta mensagens ATENDIDAS PELA IA; respostas por regras (IA indisponível) não.
-        await increment(tenant.id, AI_MESSAGES)
-    await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": decision.reply})
+        used_now = await increment(tenant.id, AI_MESSAGES)
+        await quota_alerts.after_ai_message(settings, tenant, used_now)
+    reply = decision.reply
+    if first_contact and tenant.introEnabled:
+        # Primeiro contato: a assistente diz que é assistente e que a equipe acompanha (sem "robô escondido").
+        reply = fill(niche_for(tenant.niche).intro, tenant.name) + "\n\n" + reply
+    await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
     log.info("inbound_processed", intent=decision.intent.value, degraded=decision.degraded, source=source)
-    return InboundResult(
-        status="processed", intent=decision.intent.value, reply=decision.reply, degraded=decision.degraded
-    )
+    return InboundResult(status="processed", intent=decision.intent.value, reply=reply, degraded=decision.degraded)

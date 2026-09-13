@@ -82,9 +82,15 @@ async def test_whatsapp_webhook_blocked_when_tenant_not_operational_or_over_quot
     await clean_db.usagecounter.create(
         data={"tenantId": tid, "period": current_period(), "metric": AI_MESSAGES, "count": 1500}
     )
+    # Cota estourada NÃO corta por padrão: a assistente segue respondendo (a Júlia decide o upgrade com o cliente).
     body, headers = signed({"messageId": "b2", "phone": "5581999990001", "text": "oi", "tenantId": tid})
     res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
-    assert res.json()["reason"] == "quota_exceeded"
+    assert res.json()["status"] == "processed"
+    # Só corta quando o admin liga "cortar ao estourar" na conta.
+    await clean_db.tenant.update(where={"id": tid}, data={"hardLimit": True})
+    body, headers = signed({"messageId": "b3", "phone": "5581999990001", "text": "oi", "tenantId": tid})
+    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
+    assert res.json()["status"] == "blocked" and res.json()["reason"] == "quota_exceeded"
 
 
 async def test_evolution_webhook_token_and_instance_resolution(client, clean_db):
@@ -231,3 +237,48 @@ async def test_upsell_campaign_targets_and_idempotency(client, clean_db):
     assert r2["messagesQueued"] == 0  # já disparado para este agendamento
     job = await clean_db.job.find_first(where={"name": "send-whatsapp"})
     assert "Carla" in job.payload["text"]
+
+
+async def test_first_contact_gets_the_assistant_introduction_once(client, clean_db):
+    reg = await register_user(client)
+    tid = reg["tenantId"]
+    await clean_db.tenant.update(where={"id": tid}, data={"niche": "pet"})
+    payload = {"messageId": "i1", "phone": "5581999990077", "text": "oi", "tenantId": tid, "pushName": "Bia"}
+    body, headers = signed(payload)
+    assert (await client.post("/api/webhooks/whatsapp", content=body, headers=headers)).json()["status"] == "processed"
+    first = (await clean_db.job.find_many(where={"name": "send-whatsapp"}))[0].payload["text"]
+    assert first.startswith("Olá! Sou a assistente virtual da ") and "seu pet" in first and chr(10) * 2 in first
+    # Segunda mensagem da mesma pessoa: sem apresentação.
+    body, headers = signed({**payload, "messageId": "i2", "text": "quanto custa o banho?"})
+    assert (await client.post("/api/webhooks/whatsapp", content=body, headers=headers)).json()["status"] == "processed"
+    jobs = await clean_db.job.find_many(where={"name": "send-whatsapp"}, order={"createdAt": "asc"})
+    assert len(jobs) == 2 and "seu pet" not in jobs[1].payload["text"]
+    # Cliente pode desligar a apresentação.
+    await client.patch(f"/api/clinic/{tid}/settings", headers=auth_headers(reg), json={"introEnabled": False})
+    body, headers = signed({"messageId": "i3", "phone": "5581999990078", "text": "oi", "tenantId": tid})
+    await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
+    jobs = await clean_db.job.find_many(where={"name": "send-whatsapp"}, order={"createdAt": "asc"})
+    assert len(jobs) == 3 and "seu pet" not in jobs[2].payload["text"]
+
+
+async def test_quota_alerts_at_80_and_100_percent_notify_clinic_and_team(client, clean_db, monkeypatch):
+    from app.config import get_settings
+    from app.services import quota_alerts
+
+    reg = await register_user(client, plan="BASIC")  # 1.500 mensagens/mês
+    tenant = await clean_db.tenant.find_unique(where={"id": reg["tenantId"]})
+    settings = get_settings()
+    monkeypatch.setattr(type(settings), "alerts_to", property(lambda self: "julia@example.com"))
+    await quota_alerts.after_ai_message(settings, tenant, 1199)  # abaixo do gatilho: nada
+    assert await clean_db.notification.count(where={"tenantId": tenant.id, "type": "BILLING"}) == 0
+    await quota_alerts.after_ai_message(settings, tenant, 1200)  # 80% exato
+    await quota_alerts.after_ai_message(settings, tenant, 1200)  # repetido (retentativa): deduplicado
+    await quota_alerts.after_ai_message(settings, tenant, 1500)  # 100%
+    notes = await clean_db.notification.find_many(where={"tenantId": tenant.id, "type": "BILLING"})
+    titles = sorted(n.title for n in notes)
+    assert len(titles) == 2 and titles[0].startswith("80% das mensagens") and titles[1].startswith("Limite mensal")
+    assert "continua respondendo" in [n for n in notes if n.title.startswith("Limite")][0].body
+    mails = await clean_db.job.find_many(where={"name": "send-email"})
+    mails = [m for m in mails if m.payload["subject"].startswith("[Secretar.ia]")]  # fora o e-mail de confirmação
+    assert len(mails) == 2 and all(m.payload["to"] == "julia@example.com" for m in mails)
+    assert any("80%" in m.payload["subject"] for m in mails) and any("estourou" in m.payload["subject"] for m in mails)

@@ -146,6 +146,13 @@ model Tenant {
   prompt            String       @default("") // instruções extras opcionais; a persona é gerada pelo tom
   tone              String       @default("acolhedor") // acolhedor | objetivo | formal
   niche             String       @default("clinica") // chave em domain/niches.py; escolhido pelo admin ao liberar
+  introEnabled    Boolean      @default(true) // assistente se apresenta no primeiro contato de cada pessoa
+  hardLimit       Boolean      @default(false) // admin: cortar a IA ao estourar a cota (padrão: avisa e segue)
+  paidUntil       DateTime? // cobrança fora do Stripe (Pix/boleto): pago até; vencido → PAST_DUE
+  paymentMethod   String       @default("") // "", PIX, BOLETO, STRIPE, OUTRO
+  billingNote     String? // observação do admin sobre a cobrança
+  welcomeSentAt   DateTime? // admin enviou as boas-vindas
+  lastReportPeriod String? // último relatório mensal enviado (YYYY-MM)
   prices            String?
   businessHours     String?
   timezone          String       @default("America/Sao_Paulo")

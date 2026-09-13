@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # Aparece no botão "Falar com a Júlia" do plano Enterprise e no rodapé da landing.
     sales_whatsapp: str = ""
     sales_contact_name: str = "Júlia"
+    # Para onde vão os alertas operacionais (cota em 80%/100%, relatórios com erro). Vazio = SUPER_ADMIN_EMAIL.
+    alerts_email: str = ""
+
+    @property
+    def alerts_to(self) -> str:
+        return self.alerts_email or self.super_admin_email
 
     # Confiar em X-Real-IP / X-Forwarded-For (o BFF Next.js e o proxy da plataforma os preenchem). Desligue
     # se o backend estiver exposto diretamente à internet, senão qualquer cliente forja o IP e zera os limites.

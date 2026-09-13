@@ -79,6 +79,8 @@ export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNoti
   upsellEnabled: boolean;
   upsellMessage: string | null;
   upsellDays: number;
+  introEnabled: boolean;
+  introPreview: string;
   slotMinutes: number;
   features: Record<string, boolean>;
   featureAccess: FeatureAccess;
@@ -319,6 +321,9 @@ export interface AdminTenant {
   appointmentCount: number;
   patientCount: number;
   memberCount: number;
+  aiMessagesThisMonth: number;
+  aiMessagesLimit: number;
+  hardLimit: boolean;
 }
 
 export interface AdminOverview {

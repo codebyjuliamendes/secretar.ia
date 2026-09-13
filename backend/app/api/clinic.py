@@ -61,6 +61,7 @@ class SettingsUpdateIn(BaseModel):
     upsellEnabled: bool | None = None
     upsellMessage: str | None = Field(default=None, max_length=1000)
     upsellDays: int | None = Field(default=None, ge=7, le=730)
+    introEnabled: bool | None = None
     # `features` (Json do tenant) não é editável pela clínica: recursos vêm do plano (ADR-013).
 
 

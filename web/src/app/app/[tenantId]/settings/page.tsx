@@ -54,7 +54,7 @@ export default function SettingsPage() {
 function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSettings; canManage: boolean; onSaved: () => Promise<void> | void }) {
   const { tenant } = useTenant();
   const toast = useToast();
-  const [form, setForm] = useState({ name: settings.name, tone: settings.tone, prompt: settings.prompt, prices: settings.prices ?? "", businessHours: settings.businessHours ?? "", timezone: settings.timezone });
+  const [form, setForm] = useState({ name: settings.name, tone: settings.tone, prompt: settings.prompt, prices: settings.prices ?? "", businessHours: settings.businessHours ?? "", timezone: settings.timezone, introEnabled: settings.introEnabled });
   const [showExtra, setShowExtra] = useState(Boolean(settings.prompt));
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -90,6 +90,10 @@ function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSetti
             ))}
           </div>
         </fieldset>
+        <div className="rounded-lg border border-border p-3">
+          <Switch checked={form.introEnabled} onChange={(v) => setForm({ ...form, introEnabled: v })} label="Apresentar-se como assistente no primeiro contato" />
+          <p className="mt-2 text-xs text-muted">Na primeira mensagem de cada pessoa, antes da resposta: “{settings.introPreview}”</p>
+        </div>
         {showExtra ? (
           <Field label="Instruções extras (opcional)" htmlFor="prompt" error={fieldErrors.prompt} hint="Só se quiser algo além do padrão. Ex.: “não prometa desconto”, “convênios: Unimed e Bradesco”.">
             <Textarea id="prompt" rows={3} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />

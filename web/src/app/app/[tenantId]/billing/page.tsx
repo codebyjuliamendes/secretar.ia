@@ -92,6 +92,26 @@ export default function BillingPage() {
               <div><dt className="text-muted">Período</dt><dd className="font-medium">{data.usage.period}</dd></div>
               <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : data.status === "PENDING" ? "Aguardando liberação" : "Liberada pela equipe"}</dd></div>
             </dl>
+            {data.usage.aiMessages.limit > 0 && data.usage.aiMessages.used >= data.usage.aiMessages.limit && (
+              <div className="mt-4">
+                <Alert tone="warning" title="Limite mensal de mensagens atingido">
+                  <span className="flex flex-wrap items-center justify-between gap-3">
+                    <span>A assistente continua respondendo normalmente. Vale conversar sobre a próxima faixa do plano.</span>
+                    {talkAbout && <LinkButton href={talkAbout} external size="sm">Falar com {salesName}</LinkButton>}
+                  </span>
+                </Alert>
+              </div>
+            )}
+            {data.usage.aiMessages.limit > 0 && data.usage.aiMessages.used < data.usage.aiMessages.limit && data.usage.aiMessages.used >= Math.ceil(data.usage.aiMessages.limit * 0.8) && (
+              <div className="mt-4">
+                <Alert tone="info" title="Você já usou 80% das mensagens do mês">
+                  <span className="flex flex-wrap items-center justify-between gap-3">
+                    <span>Nada muda por enquanto. Se o movimento se mantiver, a próxima faixa evita surpresas.</span>
+                    {talkAbout && <LinkButton href={talkAbout} external size="sm">Falar com {salesName}</LinkButton>}
+                  </span>
+                </Alert>
+              </div>
+            )}
             {data.status === "PAST_DUE" && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <Alert tone="danger">Há um pagamento pendente. Regularize para reativar o atendimento automático.</Alert>

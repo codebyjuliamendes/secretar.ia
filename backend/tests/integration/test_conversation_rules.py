@@ -62,7 +62,9 @@ async def test_unknown_question_goes_to_team_and_rules_do_not_consume_ai_quota(c
         {"messageId": "r1", "phone": "5581999990000", "text": "tem estacionamento?", "tenantId": tid}
     )
     res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
-    assert res.status_code == 200 and res.json()["reply"] == UNKNOWN_INFO_REPLY
+    # Primeiro contato: a apresentação da assistente vem antes da resposta por regras.
+    assert res.status_code == 200 and res.json()["reply"].endswith(UNKNOWN_INFO_REPLY)
+    assert res.json()["reply"].startswith("Olá! Sou a assistente virtual da ")
     inbox = (await client.get(f"/api/clinic/{tid}/notifications", headers=h)).json()
     assert any(n["type"] == "HUMAN_HANDOFF" for n in inbox["items"])
     # Pergunta de preço continua respondida pelo catálogo; nenhuma delas consumiu quota de IA.

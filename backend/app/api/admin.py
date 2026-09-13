@@ -37,6 +37,7 @@ class TenantUpdateIn(BaseModel):
     plan: PlanLiteral | None = None
     status: StatusLiteral | None = None
     niche: str | None = Field(default=None, max_length=40)
+    hardLimit: bool | None = None
 
 
 @router.get("/niches")

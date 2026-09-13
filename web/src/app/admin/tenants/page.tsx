@@ -5,7 +5,7 @@ import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatPhone } from "@/lib/format";
+import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatPhone, limitLabel } from "@/lib/format";
 import type { AdminTenant, Paginated, Plan, TenantStatus } from "@/lib/types";
 import { useDebounced, useQuery } from "@/lib/use-query";
 
@@ -38,7 +38,7 @@ export default function AdminTenantsPage() {
   const updating = useRef<Set<string>>(new Set());
   const [confirmStatus, setConfirmStatus] = useState<{ tenant: AdminTenant; status: TenantStatus } | null>(null);
 
-  async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status" | "niche">>) {
+  async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status" | "niche" | "hardLimit">>) {
     if (updating.current.has(t.id)) return;
     updating.current.add(t.id);
     try {
@@ -71,7 +71,7 @@ export default function AdminTenantsPage() {
       ) : (
         <>
           <Table>
-            <thead><tr><Th>Negócio</Th><Th>Status</Th><Th>Plano</Th><Th>Nicho</Th><Th>Contatos</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
+            <thead><tr><Th>Negócio</Th><Th>Status</Th><Th>Plano</Th><Th>Nicho</Th><Th>IA no mês</Th><Th>Contatos</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
             <tbody>
               {data.items.map((t) => (
                 <tr key={t.id}>
@@ -91,6 +91,7 @@ export default function AdminTenantsPage() {
                       {NICHES.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
                     </Select>
                   </Td>
+                  <Td><QuotaCell t={t} onToggle={(v) => update(t, { hardLimit: v })} /></Td>
                   <Td>{t.patientCount}</Td><Td>{t.appointmentCount}</Td><Td>{t.memberCount}</Td>
                   <Td><Badge tone={t.whatsappConnected ? "success" : "neutral"}>{t.whatsappConnected ? "conectado" : "off"}</Badge></Td>
                   <Td className="whitespace-nowrap">{formatDate(t.createdAt)}<Badge tone={STATUS_TONE[t.status]} className="sr-only">{STATUS_LABEL[t.status]}</Badge></Td>
@@ -116,6 +117,24 @@ export default function AdminTenantsPage() {
         confirmLabel="Confirmar"
       />
       </>
+  );
+}
+
+/** Uso de IA no mês com cor por faixa e o interruptor "cortar ao estourar" (padrão: avisa e segue). */
+function QuotaCell({ t, onToggle }: { t: AdminTenant; onToggle: (v: boolean) => void }) {
+  const unlimited = t.aiMessagesLimit < 0;
+  const pct = unlimited ? 0 : Math.round((t.aiMessagesThisMonth / Math.max(1, t.aiMessagesLimit)) * 100);
+  const tone = unlimited ? "neutral" : pct >= 100 ? "danger" : pct >= 80 ? "warning" : "success";
+  return (
+    <div className="space-y-1">
+      <Badge tone={tone}>{t.aiMessagesThisMonth.toLocaleString("pt-BR")} / {limitLabel(t.aiMessagesLimit)}{!unlimited && ` · ${pct}%`}</Badge>
+      {!unlimited && (
+        <label className="flex items-center gap-1 text-xs text-muted">
+          <input type="checkbox" checked={t.hardLimit} onChange={(e) => onToggle(e.target.checked)} aria-label={`Cortar ao estourar: ${t.name}`} />
+          cortar ao estourar
+        </label>
+      )}
+    </div>
   );
 }
 
