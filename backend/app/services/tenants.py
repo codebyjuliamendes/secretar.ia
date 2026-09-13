@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db import db
-from app.domain.niches import NICHES, niche_view
+from app.domain.niches import NICHES, niche_for, niche_view
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
@@ -183,7 +183,7 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
                 "prices": data.get("prices"),
                 "businessHours": data.get("businessHours"),
                 "plan": data.get("plan") or "BASIC",
-                "tone": data.get("tone") or "acolhedor",
+                "tone": data.get("tone") or niche_for(data.get("niche")).tone,
                 "niche": data.get("niche") or "clinica",
                 "status": data.get("status") or "ACTIVE",
             }
@@ -213,6 +213,10 @@ async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_use
         raise ConflictError("Nicho inválido.", code="invalid_niche")
     if "plan" in payload and "status" not in payload and str(tenant.status) == "PENDING":
         payload["status"] = "ACTIVE"  # liberar o plano é o gesto de ativação
+    if "niche" in payload and "tone" not in payload and payload["niche"] != tenant.niche:
+        # o nicho sugere o tom; só troca se o cliente ainda estiver no tom sugerido pelo nicho anterior
+        if tenant.tone == niche_for(tenant.niche).tone:
+            payload["tone"] = niche_for(payload["niche"]).tone
     updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
     await audit.record(
         action="admin.tenant_updated",

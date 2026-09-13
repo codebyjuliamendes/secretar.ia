@@ -173,3 +173,20 @@ async def test_admin_picks_the_niche_and_the_assistant_adapts(client, clean_db):
         timezone="UTC",
     )
     assert "orientação jurídica" in build_system_prompt(law, now_local=datetime.now(UTC), upcoming=[])
+
+
+async def test_niche_suggests_the_tone_unless_the_customer_chose_one(client, clean_db):
+    reg = await register_user(client, active=False)
+    tid, h = reg["tenantId"], auth_headers(reg)
+    admin_user = await register_user(client, active=False)
+    await clean_db.user.update(where={"email": admin_user["email"]}, data={"platformRole": "SUPER_ADMIN"})
+    ah = auth_headers(await login(client, admin_user["email"], admin_user["password"]))
+    # cliente ainda no tom sugerido (acolhedor): advocacia vira formal
+    r = await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"niche": "advocacia"})
+    assert r.status_code == 200 and r.json()["niche"]["tone"] == "formal"
+    assert (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()["tone"] == "formal"
+    # cliente escolhe o próprio tom: trocar o nicho de novo não mexe
+    await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"tone": "objetivo"})
+    r = await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"niche": "psicologia"})
+    assert r.status_code == 200
+    assert (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()["tone"] == "objetivo"
