@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useTenant } from "@/app/app/[tenantId]/layout";
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Skeleton, Switch, Table, Td, Th } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Skeleton, Switch, Table, Td, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { brl } from "@/lib/format";
@@ -63,6 +63,9 @@ function AvailabilityForm({ initial, canManage, onSaved }: { initial: { rules: A
   return (
     <fieldset disabled={!canManage} className="space-y-3">
       <p className="text-sm text-muted">A IA só oferece horários dentro destas janelas e sem conflito com outros agendamentos.</p>
+      {!days.some((d) => d.enabled) && (
+        <Alert tone="warning">Nenhum dia ativo: a assistente não vai oferecer horários e o calendário fica sem áreas de atendimento. Ligue os dias em que a clínica atende.</Alert>
+      )}
       <div className="space-y-2">
         {days.map((d, wd) => (
           <div key={wd} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 text-sm">

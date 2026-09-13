@@ -113,6 +113,7 @@ async def test_admin_routes_require_super_admin_role_in_db(client, clean_db):
         },
     )
     assert created.status_code == 201 and created.json()["whatsapp"] == "5581977776666"
+    assert await clean_db.availabilityrule.count(where={"tenantId": created.json()["id"]}) == 5  # seg–sex padrão
     dup = await client.post(
         "/api/admin/tenants",
         headers=auth_headers(admin),

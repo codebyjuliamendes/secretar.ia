@@ -31,7 +31,8 @@ async def create_superadmin(email: str, password: str, name: str) -> None:
                     "platformRole": "SUPER_ADMIN",
                     "emailVerifiedAt": datetime.now(UTC),
                 },
-                "update": {"platformRole": "SUPER_ADMIN"},
+                # Reexecutar o comando redefine a senha (é o jeito de recuperar o acesso do admin).
+                "update": {"platformRole": "SUPER_ADMIN", "passwordHash": hash_password(password), "name": name},
             },
         )
         print(f"SUPER_ADMIN pronto: {user.email} ({user.id})")
@@ -77,6 +78,9 @@ async def seed_demo() -> None:
             where={"userId_tenantId": {"userId": owner.id, "tenantId": tenant.id}},
             data={"create": {"userId": owner.id, "tenantId": tenant.id, "role": "OWNER"}, "update": {}},
         )
+        from app.services.scheduling import ensure_default_rules
+
+        await ensure_default_rules(tenant.id)  # sem janelas a IA não tem horário para oferecer
         patient = await db.patient.upsert(
             where={"tenantId_phone": {"tenantId": tenant.id, "phone": "5581988887777"}},
             data={

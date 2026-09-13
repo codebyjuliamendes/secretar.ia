@@ -184,6 +184,9 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
         )
     except UniqueViolationError as exc:
         raise ConflictError("Já existe uma clínica com este WhatsApp.", code="whatsapp_taken") from exc
+    from app.services.scheduling import ensure_default_rules
+
+    await ensure_default_rules(tenant.id)  # mesmas janelas padrão do cadastro (seg–sex 09–18)
     await audit.record(
         action="admin.tenant_created",
         resource_type="tenant",

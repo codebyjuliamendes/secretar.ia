@@ -87,7 +87,7 @@ export default function BillingPage() {
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
               <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}</dd></div>
               <div><dt className="text-muted">Período</dt><dd className="font-medium">{data.usage.period}</dd></div>
-              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : "Não iniciada"}</dd></div>
+              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : data.plan === "FREE" ? "Não iniciada" : "Liberada pela equipe"}</dd></div>
             </dl>
             {data.status === "PAST_DUE" && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
