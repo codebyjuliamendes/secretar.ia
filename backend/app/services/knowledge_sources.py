@@ -3,8 +3,10 @@
 - PDF: texto extraído com pypdf. Sem OCR: um PDF digitalizado (sem camada de texto) é recusado com mensagem
   clara em vez de virar um documento vazio.
 - URL: só http/https; o host é resolvido e rejeitado se apontar para rede privada, loopback, link-local ou
-  metadados de nuvem (SSRF). Redirecionamentos são seguidos manualmente (até 3) revalidando cada destino; o
-  corpo é limitado a 2 MB; HTML vira texto por parágrafos (sem script/style/nav); PDF passa pelo mesmo extrator.
+  metadados de nuvem (SSRF). A conexão é feita ao IP validado (URL reescrita, `Host` e SNI com o nome
+  original), então uma segunda resolução de DNS não pode trocar o destino (DNS rebinding). Redirecionamentos
+  são seguidos manualmente (até 3) revalidando cada destino; o corpo é limitado a 2 MB; HTML vira texto por
+  parágrafos (sem script/style/nav); PDF passa pelo mesmo extrator.
 - Texto maior que um documento é dividido em partes ("Título (1/3)") respeitando parágrafos, e a cota de
   documentos do plano é verificada ANTES de gravar qualquer parte (importação é tudo-ou-nada).
 """
@@ -17,6 +19,7 @@ import ipaddress
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from typing import Any
 
 import httpx
 from pypdf import PdfReader
@@ -191,7 +194,8 @@ async def _resolve_host(host: str) -> list[str]:
     return sorted({info[4][0] for info in infos})
 
 
-async def assert_public_host(host: str) -> None:
+async def assert_public_host(host: str) -> list[str]:
+    """Resolve o host e devolve os IPs, todos públicos; qualquer IP interno recusa a URL inteira."""
     literal = host.strip("[]")
     try:
         ipaddress.ip_address(literal)
@@ -203,6 +207,15 @@ async def assert_public_host(host: str) -> None:
             raise AppError("Não foi possível resolver o endereço da URL.", code="url_fetch_failed") from exc
     if not ips or any(not is_public_ip(ip) for ip in ips):
         raise AppError("Esta URL aponta para um endereço interno e não pode ser importada.", code="url_not_allowed")
+    return ips
+
+
+def pinned_request(url: httpx.URL, ip: str) -> tuple[httpx.URL, dict[str, str], dict[str, Any]]:
+    """Conecta ao IP já validado, preservando nome do host (Host/SNI) para o servidor e para o certificado."""
+    host_header = url.host if url.port is None else f"{url.host}:{url.port}"
+    target = url.copy_with(host=f"[{ip}]" if ":" in ip else ip)
+    extensions: dict[str, Any] = {"sni_hostname": url.host} if url.scheme == "https" else {}
+    return target, {"Host": host_header}, extensions
 
 
 async def fetch_url(url: str) -> FetchedSource:
@@ -211,7 +224,8 @@ async def fetch_url(url: str) -> FetchedSource:
     ctype = ""
     charset: str | None = None
     for _ in range(MAX_REDIRECTS + 1):
-        await assert_public_host(current.host)
+        ips = await assert_public_host(current.host)
+        target, host_headers, extensions = pinned_request(current, ips[0])
         async with httpx.AsyncClient(
             timeout=URL_TIMEOUT_SECONDS,
             follow_redirects=False,
@@ -219,7 +233,7 @@ async def fetch_url(url: str) -> FetchedSource:
             headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/pdf,text/plain;q=0.9,*/*;q=0.5"},
         ) as client:
             try:
-                async with client.stream("GET", current) as resp:
+                async with client.stream("GET", target, headers=host_headers, extensions=extensions) as resp:
                     if resp.status_code in (301, 302, 303, 307, 308):
                         location = resp.headers.get("location")
                         if not location:

@@ -77,7 +77,14 @@ async def test_assert_public_host_uses_literal_ips_without_dns(monkeypatch: pyte
     with pytest.raises(AppError) as exc:
         await ks.assert_public_host("127.0.0.1")
     assert exc.value.code == "url_not_allowed"
-    await ks.assert_public_host("93.184.216.34")
+    assert await ks.assert_public_host("93.184.216.34") == ["93.184.216.34"]
+    target, headers, ext = ks.pinned_request(ks._validate_url("https://clinica.example:8443/faq?x=1"), "93.184.216.34")
+    assert str(target) == "https://93.184.216.34:8443/faq?x=1"
+    assert headers == {"Host": "clinica.example:8443"} and ext == {"sni_hostname": "clinica.example"}
+    target6, _, ext6 = ks.pinned_request(
+        ks._validate_url("http://clinica.example/"), "2606:2800:220:1:248:1893:25c8:1946"
+    )
+    assert target6.host == "2606:2800:220:1:248:1893:25c8:1946" and ext6 == {}
 
     async def resolves_private(host):
         return ["93.184.216.34", "10.0.0.5"]  # basta um IP privado para recusar

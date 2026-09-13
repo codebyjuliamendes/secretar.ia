@@ -178,9 +178,10 @@ PDF e no site, e colar texto à mão limita a adoção da base de conhecimento.
   importação é tudo-ou-nada. `KnowledgeDocument.source/sourceRef` registram a origem (`text|pdf|url|file`).
 - Testes rodam sem rede: `httpx.MockTransport` e resolução de DNS injetados; o PDF de teste é gerado em memória
   com xref válido.
-**Consequências.** Dependências novas: `pypdf` e `python-multipart`. A verificação de IP acontece antes da
-requisição e o httpx resolve o nome de novo ao conectar (janela teórica de DNS rebinding); para fechar isso
-seria preciso conectar ao IP validado com SNI manual, o que fica como evolução se o produto ganhar exposição.
+**Consequências.** Dependências novas: `pypdf` e `python-multipart`. Desde 12/set/2026 a requisição é feita
+ao IP já validado (URL reescrita com o IP, cabeçalho `Host` e extensão `sni_hostname` do httpx com o nome
+original, que também é o nome verificado no certificado), fechando a janela de DNS rebinding entre a
+verificação e a conexão. Cada salto de redirecionamento passa pelo mesmo caminho.
 Páginas que exigem JavaScript para renderizar o conteúdo não são suportadas (só o HTML servido). OCR de PDFs
 digitalizados fica como evolução (Gemini multimodal já lê imagens; um caminho é rasterizar as páginas).
 

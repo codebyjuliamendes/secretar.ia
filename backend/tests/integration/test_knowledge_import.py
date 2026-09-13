@@ -40,9 +40,14 @@ FAQ_HTML = (
 )
 
 
+SEEN_REQUESTS: list[httpx.Request] = []
+
+
 def _handler(request: httpx.Request) -> httpx.Response:
+    SEEN_REQUESTS.append(request)
     path = request.url.path
-    if request.url.host != "clinica.example":
+    # A conexão vai ao IP validado; o nome só viaja no Host (e no SNI, em https).
+    if request.headers.get("host") != "clinica.example" or request.url.host != "93.184.216.34":
         return httpx.Response(404)
     if path == "/faq":
         return httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=FAQ_HTML)
@@ -75,6 +80,7 @@ def offline_web(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(ks, "_transport", httpx.MockTransport(_handler))
     monkeypatch.setattr(ks, "_resolve_host", resolve)
+    SEEN_REQUESTS.clear()
 
 
 async def _paid_tenant(client, clean_db, plan: str = "PRO"):
@@ -144,6 +150,9 @@ async def test_url_import_html_pdf_redirects_and_ssrf_protection(client, clean_d
     assert body["sourceUrl"] == "https://clinica.example/faq" and body["kind"] == "html"
     (doc,) = body["items"]
     assert doc["title"] == "FAQ da Clinica Harmonize" and doc["source"] == "url"
+    # DNS rebinding: a requisição foi ao IP validado, com SNI do nome original para o certificado.
+    faq_req = next(r for r in SEEN_REQUESTS if r.url.path == "/faq")
+    assert faq_req.url.host == "93.184.216.34" and faq_req.extensions.get("sni_hostname") == "clinica.example"
     detail = (await client.get(f"/api/clinic/{tid}/knowledge/{doc['id']}", headers=h)).json()
     assert "x()" not in detail["content"] and "cartão de crédito em até 6 vezes" in detail["content"]
     assert "Formas de pagamento\n\nAceitamos" in detail["content"]  # parágrafos preservados para o chunker
