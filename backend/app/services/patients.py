@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from app.db import db
@@ -18,6 +19,7 @@ def patient_view(p, *, appointment_count: int | None = None, last_appointment=No
         "name": p.name,
         "phone": p.phone,
         "notes": p.notes,
+        "marketingOptOut": bool(getattr(p, "marketingOptOut", False)),
         "createdAt": p.createdAt.isoformat(),
     }
     if appointment_count is not None:
@@ -39,7 +41,8 @@ async def list_patients(tenant_id: str, *, search: str | None, limit: int, offse
         FROM "Patient" p
         LEFT JOIN "Appointment" a ON a."patientId" = p.id
         WHERE p."tenantId" = $1
-          AND ($2::text IS NULL OR p.name ILIKE '%' || $2 || '%' OR p.phone LIKE '%' || $2 || '%')
+          AND ($2::text IS NULL OR position(lower($2) in lower(coalesce(p.name, ''))) > 0
+               OR position($2 in p.phone) > 0)
         GROUP BY p.id
         ORDER BY p."createdAt" DESC
         LIMIT $3 OFFSET $4
@@ -77,11 +80,12 @@ async def get_patient(tenant_id: str, patient_id: str) -> dict:
     appts = await db.appointment.find_many(
         where={"patientId": p.id, "tenantId": tenant_id}, order={"date": "desc"}, take=20
     )
+    total_appts = await db.appointment.count(where={"patientId": p.id, "tenantId": tenant_id})
     msgs = await db.message.find_many(
-        where={"tenantId": tenant_id, "phone": p.phone}, order={"createdAt": "desc"}, take=30
+        where={"tenantId": tenant_id, "phone": p.phone}, order=[{"createdAt": "desc"}, {"id": "desc"}], take=30
     )
     return {
-        **patient_view(p, appointment_count=len(appts)),
+        **patient_view(p, appointment_count=total_appts),
         "appointments": [
             {"id": a.id, "service": a.service, "date": a.date.isoformat(), "status": str(a.status)} for a in appts
         ],
@@ -156,6 +160,21 @@ async def delete_patient(tenant_id: str, patient_id: str, *, actor_user_id: str,
     p = await db.patient.find_first(where={"id": patient_id, "tenantId": tenant_id})
     if p is None:
         raise NotFoundError("Paciente não encontrado.")
+    # Consultas futuras somem em cascata e o evento ficaria órfão no Google: a equipe cancela antes.
+    upcoming = await db.appointment.count(
+        where={
+            "patientId": p.id,
+            "tenantId": tenant_id,
+            "status": {"in": ["PENDING", "CONFIRMED"]},
+            "date": {"gte": datetime.now(UTC)},
+        }
+    )
+    if upcoming:
+        raise ConflictError(
+            f"Este paciente tem {upcoming} agendamento(s) futuro(s). Cancele-os antes de excluir.",
+            code="patient_has_upcoming",
+            details={"upcoming": upcoming},
+        )
     await db.patient.delete(where={"id": p.id})
     await audit.record(
         action="patient.deleted",

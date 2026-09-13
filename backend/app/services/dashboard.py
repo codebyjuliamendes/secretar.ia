@@ -14,38 +14,40 @@ def _n(v) -> int:
 
 async def clinic_dashboard(tenant, *, days: int = 30) -> dict:
     now = datetime.now(UTC)
-    since = now - timedelta(days=days)
+    # Colunas TIMESTAMP (sem fuso) guardam UTC: os limites vão como timestamp UTC "naive" ($n::timestamp),
+    # sem depender do fuso da sessão do Postgres.
+    since = (now - timedelta(days=days)).replace(tzinfo=None)
     prev_since = since - timedelta(days=days)
 
     kpis = await db.query_raw(
         """
         SELECT
           (SELECT COUNT(*) FROM "Patient" WHERE "tenantId" = $1) AS patients_total,
-          (SELECT COUNT(*) FROM "Patient" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz) AS patients_new,
+          (SELECT COUNT(*) FROM "Patient" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp) AS patients_new,
           (SELECT COUNT(*) FROM "Patient" WHERE "tenantId" = $1
-              AND "createdAt" >= $3::timestamptz AND "createdAt" < $2::timestamptz) AS patients_new_prev,
-          (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz)
+              AND "createdAt" >= $3::timestamp AND "createdAt" < $2::timestamp) AS patients_new_prev,
+          (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp)
               AS appts_created,
           (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1
-              AND "createdAt" >= $3::timestamptz AND "createdAt" < $2::timestamptz) AS appts_created_prev,
+              AND "createdAt" >= $3::timestamp AND "createdAt" < $2::timestamp) AS appts_created_prev,
           (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND status = 'PENDING') AS appts_pending,
-          (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND status = 'CONFIRMED' AND date >= NOW())
-              AS appts_upcoming,
+          (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND status = 'CONFIRMED'
+              AND date >= (NOW() AT TIME ZONE 'UTC')) AS appts_upcoming,
           (SELECT COALESCE(SUM("priceCents"),0) FROM "Appointment"
-              WHERE "tenantId" = $1 AND status = 'COMPLETED' AND date >= $2::timestamptz) AS revenue_completed_cents,
+              WHERE "tenantId" = $1 AND status = 'COMPLETED' AND date >= $2::timestamp) AS revenue_completed_cents,
           (SELECT COALESCE(SUM("priceCents"),0) FROM "Appointment"
-              WHERE "tenantId" = $1 AND status = 'COMPLETED' AND source = 'AI' AND date >= $2::timestamptz)
+              WHERE "tenantId" = $1 AND status = 'COMPLETED' AND source = 'AI' AND date >= $2::timestamp)
               AS revenue_ai_cents,
           (SELECT COUNT(*) FROM "Appointment" WHERE "tenantId" = $1 AND source = 'AI'
-              AND "createdAt" >= $2::timestamptz) AS appts_ai,
+              AND "createdAt" >= $2::timestamp) AS appts_ai,
           (SELECT COUNT(*) FROM "Notification" WHERE "tenantId" = $1 AND type = 'HUMAN_HANDOFF'
-              AND "createdAt" >= $2::timestamptz) AS handoffs,
+              AND "createdAt" >= $2::timestamp) AS handoffs,
           (SELECT COUNT(*) FROM "Notification" WHERE "tenantId" = $1 AND "readAt" IS NULL) AS unread,
-          (SELECT COUNT(*) FROM "ExecutionLog" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz) AS ai_messages,
+          (SELECT COUNT(*) FROM "ExecutionLog" WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp) AS ai_messages,
           (SELECT COUNT(*) FROM "ExecutionLog"
-              WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz AND error IS NOT NULL) AS ai_degraded,
+              WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp AND error IS NOT NULL) AS ai_degraded,
           (SELECT AVG("runTimeMs") FROM "ExecutionLog"
-              WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz) AS ai_avg_ms
+              WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp) AS ai_avg_ms
         """,
         tenant.id,
         since,
@@ -58,19 +60,25 @@ async def clinic_dashboard(tenant, *, days: int = 30) -> dict:
         SELECT d::date AS day,
                COALESCE(a.cnt, 0) AS appointments,
                COALESCE(m.cnt, 0) AS messages
-        FROM generate_series(($2::timestamptz)::date, (NOW() AT TIME ZONE 'UTC')::date, '1 day') d
-        LEFT JOIN (SELECT "createdAt"::date AS day, COUNT(*) cnt FROM "Appointment"
-                   WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz GROUP BY 1) a ON a.day = d::date
-        LEFT JOIN (SELECT "createdAt"::date AS day, COUNT(*) cnt FROM "ExecutionLog"
-                   WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz GROUP BY 1) m ON m.day = d::date
+        FROM generate_series(($2::timestamp AT TIME ZONE 'UTC' AT TIME ZONE $3)::date,
+                             (NOW() AT TIME ZONE $3)::date, '1 day') d
+        LEFT JOIN (SELECT ("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $3)::date AS day, COUNT(*) cnt
+                   FROM "Appointment"
+                   WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp GROUP BY 1) a
+              ON a.day = d::date
+        LEFT JOIN (SELECT ("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $3)::date AS day, COUNT(*) cnt
+                   FROM "ExecutionLog"
+                   WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp GROUP BY 1) m
+              ON m.day = d::date
         ORDER BY d
         """,
         tenant.id,
         since,
+        tenant.timezone or "America/Sao_Paulo",
     )
     intents = await db.query_raw(
         """SELECT COALESCE(intent,'INFO') AS intent, COUNT(*) cnt FROM "ExecutionLog"
-           WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamptz GROUP BY 1 ORDER BY 2 DESC""",
+           WHERE "tenantId" = $1 AND "createdAt" >= $2::timestamp GROUP BY 1 ORDER BY 2 DESC""",
         tenant.id,
         since,
     )

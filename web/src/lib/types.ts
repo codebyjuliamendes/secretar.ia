@@ -173,6 +173,7 @@ export interface Patient {
   name: string | null;
   phone: string;
   notes: string | null;
+  marketingOptOut: boolean;
   createdAt: string;
   appointmentCount?: number;
   lastAppointmentAt?: string | null;

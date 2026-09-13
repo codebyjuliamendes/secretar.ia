@@ -57,25 +57,38 @@ async def run_upsell_campaign(*, tenant_id: str | None = None, dry_run: bool = F
                 "status": "COMPLETED",
                 "date": {"gte": lower, "lte": upper},
                 "upsellDispatches": {"none": {}},
+                "patient": {"is": {"marketingOptOut": False}},
             },
             include={"patient": True},
+            order={"date": "desc"},
             take=500,
         )
+        # Quem já voltou depois da janela (realizado, confirmado ou pendente) não recebe convite: uma consulta só.
+        returned = await db.appointment.find_many(
+            where={
+                "tenantId": tenant.id,
+                "patientId": {"in": sorted({a.patientId for a in candidates})},
+                "date": {"gt": upper},
+                "status": {"not": "CANCELED"},
+            },
+            distinct=["patientId"],
+        )
+        already_back = {a.patientId for a in returned}
+        # Um convite por paciente por ciclo: quem já recebeu nos últimos `upsellDays` não recebe pelo 2º procedimento.
+        recent = await db.upselldispatch.find_many(
+            where={
+                "tenantId": tenant.id,
+                "patientId": {"in": sorted({a.patientId for a in candidates})},
+                "createdAt": {"gte": now - timedelta(days=tenant.upsellDays)},
+            },
+            distinct=["patientId"],
+        )
+        messaged: set[str] = {d.patientId for d in recent}
         for appt in candidates:
-            if appt.patient is None:
-                continue
-            # Não reengaja quem já tem retorno marcado.
-            future = await db.appointment.count(
-                where={
-                    "tenantId": tenant.id,
-                    "patientId": appt.patientId,
-                    "date": {"gt": now},
-                    "status": {"in": ["PENDING", "CONFIRMED"]},
-                }
-            )
-            if future:
+            if appt.patient is None or appt.patientId in already_back or appt.patientId in messaged:
                 skipped += 1
                 continue
+            messaged.add(appt.patientId)  # um convite por paciente por rodada, mesmo com vários procedimentos
             if dry_run:
                 sent += 1
                 continue

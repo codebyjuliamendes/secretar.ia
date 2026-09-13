@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from app.config import Settings
 from app.deps import TenantContext, client_ip, get_settings_dep, require_permission, tenant_context
@@ -338,7 +337,7 @@ class AppointmentCreateIn(BaseModel):
     patientName: str | None = Field(default=None, max_length=120)
     service: str = Field(min_length=2, max_length=120)
     serviceId: str | None = Field(default=None, max_length=64)
-    date: datetime
+    date: AwareDatetime
     durationMin: int | None = Field(default=None, ge=5, le=600)
     priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
     notes: str | None = Field(default=None, max_length=2000)
@@ -351,7 +350,7 @@ class AppointmentStatusIn(BaseModel):
 
 class AppointmentUpdateIn(BaseModel):
     service: str | None = Field(default=None, min_length=2, max_length=120)
-    date: datetime | None = None
+    date: AwareDatetime | None = None
     durationMin: int | None = Field(default=None, ge=5, le=600)
     priceCents: int | None = Field(default=None, ge=0, le=100_000_000)
     notes: str | None = Field(default=None, max_length=2000)
@@ -361,8 +360,8 @@ class AppointmentUpdateIn(BaseModel):
 @router.get("/appointments")
 async def list_appointments(
     status_: AppointmentStatusLiteral | None = Query(default=None, alias="status"),
-    date_from: datetime | None = Query(default=None, alias="from"),
-    date_to: datetime | None = Query(default=None, alias="to"),
+    date_from: AwareDatetime | None = Query(default=None, alias="from"),
+    date_to: AwareDatetime | None = Query(default=None, alias="to"),
     search: str | None = Query(default=None, max_length=120),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -469,8 +468,8 @@ class ServiceUpdateIn(BaseModel):
 
 @router.get("/calendar")
 async def calendar_view(
-    start: datetime = Query(alias="from"),
-    end: datetime = Query(alias="to"),
+    start: AwareDatetime = Query(alias="from"),
+    end: AwareDatetime = Query(alias="to"),
     ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW)),
 ):
     return await scheduling.calendar(ctx.tenant, start=start, end=end)
@@ -478,7 +477,7 @@ async def calendar_view(
 
 @router.get("/availability")
 async def availability(
-    start: datetime | None = Query(default=None, alias="from"),
+    start: AwareDatetime | None = Query(default=None, alias="from"),
     days: int = Query(default=7, ge=1, le=31),
     duration: int = Query(default=60, ge=5, le=600),
     ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW)),
@@ -562,6 +561,7 @@ class PatientCreateIn(BaseModel):
 class PatientUpdateIn(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=2000)
+    marketingOptOut: bool | None = None
 
 
 @router.get("/patients")

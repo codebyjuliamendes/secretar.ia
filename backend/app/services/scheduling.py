@@ -258,14 +258,15 @@ async def check_availability(
 ) -> tuple[bool, str | None]:
     """Retorna (disponível, motivo). Sem regras configuradas, só verifica conflitos."""
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
-    if start_utc < datetime.now(UTC):
-        return False, "past"
-    rules = await get_rules(tenant.id)
-    if rules and not within_rules(start_utc, duration_min, rules, tz):
-        return False, "outside_hours"
+    # Conflito e janela vêm antes de "past": quem lança retroativo (permitido) ainda vê a sobreposição.
     end = start_utc + timedelta(minutes=duration_min)
     if await busy_between(tenant.id, start_utc, end, exclude_id=exclude_id):
         return False, "conflict"
+    rules = await get_rules(tenant.id)
+    if rules and not within_rules(start_utc, duration_min, rules, tz):
+        return False, "outside_hours"
+    if start_utc < datetime.now(UTC):
+        return False, "past"
     return True, None
 
 

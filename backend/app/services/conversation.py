@@ -24,6 +24,29 @@ from generated_prisma.errors import UniqueViolationError
 log = get_logger("conversation")
 
 HISTORY_LIMIT = 10
+OPT_OUT_PHRASES = (
+    "nao quero receber",
+    "nao quero mais receber",
+    "parar de receber",
+    "pare de mandar",
+    "para de mandar",
+    "nao me mande",
+    "nao me manda",
+    "sair da lista",
+    "descadastrar",
+    "remover meu numero",
+    "nao quero mais mensagens",
+)
+OPT_OUT_REPLY = (
+    "Entendido! Você não vai mais receber nossos lembretes de retorno por aqui. Se precisar de algo, é só chamar."
+)
+
+
+def wants_opt_out(text: str) -> bool:
+    from app.domain.intents import normalize
+
+    t = normalize(text)
+    return any(p in t for p in OPT_OUT_PHRASES)
 
 
 @dataclass
@@ -335,6 +358,22 @@ async def _process(
         await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
         log.info("inbound_media_unreadable", kind=media.kind, source=source, error=media_error)
         return InboundResult(status="processed", intent=Intent.INFO.value, reply=reply, degraded=True)
+
+    if wants_opt_out(text):
+        # LGPD: pedido explícito para não receber campanhas vale na hora, sem passar pela IA.
+        await db.patient.update(where={"id": patient.id}, data={"marketingOptOut": True})
+        await _save_exchange(tenant.id, phone, text, OPT_OUT_REPLY)
+        await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": OPT_OUT_REPLY})
+        await notifications.notify(
+            tenant.id,
+            type_="SYSTEM",
+            title=f"Paciente pediu para não receber campanhas: {patient.name or phone}",
+            body="A campanha de retorno não vai mais enviar mensagens para este número.",
+            phone=phone,
+            dedupe_minutes=24 * 60,
+        )
+        log.info("inbound_marketing_opt_out", source=source)
+        return InboundResult(status="processed", intent=Intent.INFO.value, reply=OPT_OUT_REPLY, degraded=False)
 
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
     history = await _history(tenant.id, phone)

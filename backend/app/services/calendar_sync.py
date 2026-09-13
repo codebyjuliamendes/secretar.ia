@@ -389,9 +389,15 @@ def _is_ours(item: dict, our_ids: set[str]) -> bool:
     return bool(private.get("secretariaAppointmentId")) or item.get("id") in our_ids
 
 
+NON_BLOCKING_EVENT_TYPES = {"workingLocation", "birthday"}  # "Escritório/Casa" e aniversários não são compromissos
+
+
 def blocks_time(item: dict) -> bool:
-    """Evento cancelado, marcado como "livre" ou recusado pelo dono da agenda não ocupa horário."""
+    """Evento cancelado, marcado como "livre", recusado pelo dono da agenda ou de tipo informativo não ocupa
+    horário."""
     if item.get("status") == "cancelled" or item.get("transparency") == "transparent":
+        return False
+    if item.get("eventType") in NON_BLOCKING_EVENT_TYPES:
         return False
     for attendee in item.get("attendees") or []:
         if attendee.get("self") and attendee.get("responseStatus") == "declined":
@@ -448,7 +454,13 @@ async def _list_all(
 async def _pull(provider, token: str, conn, tenant, now: datetime) -> dict[str, Any]:
     our_ids = {
         a.externalEventId
-        for a in await db.appointment.find_many(where={"tenantId": conn.tenantId, "externalEventId": {"not": None}})
+        for a in await db.appointment.find_many(
+            where={
+                "tenantId": conn.tenantId,
+                "externalEventId": {"not": None},
+                "date": {"gte": now - timedelta(days=2)},  # os antigos já saíram da janela de leitura
+            }
+        )
     }
     stale = conn.lastFullPullAt is None or now - conn.lastFullPullAt > timedelta(hours=FULL_PULL_EVERY_HOURS)
     full = conn.syncToken is None or stale

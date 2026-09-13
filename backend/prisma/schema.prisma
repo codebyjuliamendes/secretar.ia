@@ -183,6 +183,7 @@ model Patient {
   phone     String
   name      String?
   notes     String?
+  marketingOptOut Boolean @default(false) // pediu para não receber convites de retorno (LGPD)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
