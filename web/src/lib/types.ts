@@ -53,6 +53,7 @@ export interface PlanLimits {
   plan: Plan;
   label: string;
   priceFrom: boolean;
+  priceCentsYear: number;
   aiMessagesPerMonth: number;
   maxPatients: number;
   maxMembers: number;
@@ -265,11 +266,13 @@ export interface Billing {
   sales: SalesContact;
   paidUntil: string | null;
   paymentMethod: string;
+  billingCycle: string;
 }
 
 export interface SalesContact {
   whatsapp: string; // só dígitos com DDI; vazio = não configurado
   name: string;
+  demo: string; // WhatsApp da conta demo; vazio = sem botão
 }
 
 export interface PublicConfig {
@@ -334,6 +337,7 @@ export interface AdminTenant {
   welcomeSentAt: string | null;
   lastReportPeriod: string | null;
   hasSubscription: boolean;
+  billingCycle: string;
   checklist: { plan: boolean; whatsapp: boolean; services: boolean; welcome: boolean };
 }
 

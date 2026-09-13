@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
+import { demoLink } from "@/lib/format";
 import { NICHE_PAGES, nichePageBySlug } from "@/lib/niche-pages";
 import { getPublicConfig } from "@/lib/server/public-config";
 
@@ -27,6 +28,7 @@ export default async function NicheLanding({ params }: { params: Promise<{ nicho
   const page = nichePageBySlug((await params).nicho);
   if (!page) notFound();
   const config = await getPublicConfig();
+  const demo = demoLink(config?.sales);
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
@@ -49,9 +51,15 @@ export default async function NicheLanding({ params }: { params: Promise<{ nicho
           <h1 className="text-4xl font-semibold tracking-tight [text-wrap:balance] sm:text-5xl">{page.headline}</h1>
           <p className="mt-5 max-w-xl text-lg text-muted">{page.sub}</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <LinkButton href="/register">Criar conta</LinkButton>
-            <LinkButton href="#planos" variant="secondary">
-              Ver planos
+            {demo ? (
+              <LinkButton href={demo} external>
+                Converse com a assistente agora
+              </LinkButton>
+            ) : (
+              <LinkButton href="/register">Criar conta</LinkButton>
+            )}
+            <LinkButton href={demo ? "/register" : "#planos"} variant="secondary">
+              {demo ? "Criar conta" : "Ver planos"}
             </LinkButton>
           </div>
           <p className="mt-4 text-xs text-muted">Sem cartão. Você configura, a equipe libera e a assistente começa a atender.</p>

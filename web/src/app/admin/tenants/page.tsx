@@ -5,7 +5,7 @@ import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, LinkButton, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatDateTime, formatPhone, limitLabel } from "@/lib/format";
+import { CYCLE_LABEL, PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatDateTime, formatPhone, limitLabel } from "@/lib/format";
 import type { AdminTenant, Paginated, Plan, TenantStatus } from "@/lib/types";
 import { useDebounced, useQuery } from "@/lib/use-query";
 
@@ -145,6 +145,13 @@ function PaidUntilBadge({ t, now }: { t: AdminTenant; now: number }) {
   return <Badge tone={tone} className="whitespace-nowrap">{formatDate(t.paidUntil)}{t.paymentMethod ? ` · ${PAYMENT_LABEL[t.paymentMethod] ?? t.paymentMethod}` : ""}</Badge>;
 }
 
+/** Soma meses a uma data yyyy-mm-dd (ou a hoje, se vazia), para os atalhos "+1 mês" / "+12 meses". */
+function addMonths(ymd: string, months: number): string {
+  const base = ymd ? new Date(`${ymd}T12:00:00`) : new Date();
+  base.setMonth(base.getMonth() + months);
+  return base.toISOString().slice(0, 10);
+}
+
 type WelcomeResult = { emails: string[]; sentAt: string; whatsappLink: string | null };
 type ReportResult = { period: string; emails: string[]; data: Record<string, number> };
 
@@ -157,6 +164,7 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
   const [method, setMethod] = useState("");
   const [paidUntil, setPaidUntil] = useState("");
   const [note, setNote] = useState("");
+  const [cycle, setCycle] = useState("MONTHLY");
   const [key, setKey] = useState<string | null>(null);
 
   // Reidrata o formulário quando a conta aberta muda.
@@ -165,6 +173,7 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
     setMethod(tenant.paymentMethod || "PIX");
     setPaidUntil(tenant.paidUntil ? tenant.paidUntil.slice(0, 10) : "");
     setNote(tenant.billingNote ?? "");
+    setCycle(tenant.billingCycle || "MONTHLY");
     setWelcome(null);
     setReport(null);
   }
@@ -193,6 +202,7 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
         paymentMethod: method,
         paidUntil: paidUntil ? new Date(`${paidUntil}T23:59:59`).toISOString() : null,
         billingNote: note || null,
+        billingCycle: cycle,
       });
       toast.success("Cobrança registrada.");
       await onChanged();
@@ -242,12 +252,18 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
           ) : (
             <>
               <p className="mt-1 text-xs text-muted">Pix, boleto ou transferência: registre até quando está pago. Data futura reativa uma conta pendente; vencida há mais de 3 dias, a rotina diária pausa a assistente.</p>
-              <div className="mt-2 grid gap-3 sm:grid-cols-[140px_180px_1fr]">
+              <div className="mt-2 grid gap-3 sm:grid-cols-[120px_140px_180px_1fr]">
+                <Field label="Ciclo" htmlFor="pay-cycle"><Select id="pay-cycle" value={cycle} onChange={(e) => setCycle(e.target.value)}>{Object.entries(CYCLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
                 <Field label="Forma" htmlFor="pay-method"><Select id="pay-method" value={method} onChange={(e) => setMethod(e.target.value)}>{["PIX", "BOLETO", "OUTRO"].map((m) => <option key={m} value={m}>{PAYMENT_LABEL[m]}</option>)}</Select></Field>
                 <Field label="Pago até" htmlFor="pay-until"><Input id="pay-until" type="date" value={paidUntil} onChange={(e) => setPaidUntil(e.target.value)} /></Field>
                 <Field label="Observação" htmlFor="pay-note"><Input id="pay-note" placeholder="ex.: Pix de 750 em 10/09" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
               </div>
-              <div className="mt-2 flex gap-2"><Button size="sm" onClick={saveBilling} loading={busy === "billing"}>Registrar pagamento</Button></div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={saveBilling} loading={busy === "billing"}>Registrar pagamento</Button>
+                <Button size="sm" variant="ghost" onClick={() => setPaidUntil(addMonths(paidUntil, 1))}>+1 mês</Button>
+                <Button size="sm" variant="ghost" onClick={() => setPaidUntil(addMonths(paidUntil, 12))}>+12 meses</Button>
+                <span className="text-xs text-muted">Anual = 11 mensalidades ({PLAN_LABEL[tenant.plan]}).</span>
+              </div>
             </>
           )}
         </section>

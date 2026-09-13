@@ -98,7 +98,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
         """
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
                t."whatsappConnected", t."createdAt", t."hardLimit", t."paidUntil", t."paymentMethod",
-               t."billingNote", t."welcomeSentAt", t."lastReportPeriod", t."subscriptionId",
+               t."billingNote", t."welcomeSentAt", t."lastReportPeriod", t."subscriptionId", t."billingCycle",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
                COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth",
                COALESCE(s.cnt, 0) AS "serviceCount"
@@ -142,6 +142,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "paidUntil": _iso(r.get("paidUntil")),
                 "paymentMethod": r.get("paymentMethod") or "",
                 "billingNote": r.get("billingNote"),
+                "billingCycle": r.get("billingCycle") or "MONTHLY",
                 "welcomeSentAt": _iso(r.get("welcomeSentAt")),
                 "lastReportPeriod": r.get("lastReportPeriod"),
                 "hasSubscription": bool(r.get("subscriptionId")),

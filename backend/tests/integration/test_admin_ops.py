@@ -144,3 +144,30 @@ async def test_monthly_report_counts_the_previous_month_and_sends_once(client, c
     assert r.status_code == 200 and r.json()["period"] == period and r.json()["emails"] == [reg["email"]]
     assert (await clean_db.tenant.find_unique(where={"id": tid})).lastReportPeriod == period
     assert (await client.get(f"/api/clinic/{tid}", headers=h)).status_code == 200
+
+
+async def test_export_csv_and_annual_cycle(client, clean_db):
+    reg = await register_user(client, clinic="Export SA")
+    tid, h = reg["tenantId"], auth_headers(reg)
+    await client.post(f"/api/clinic/{tid}/patients", headers=h, json={"phone": "5581999990601", "name": "Bia; Souza"})
+    r = await client.get(f"/api/clinic/{tid}/export/patients.csv", headers=h)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    body = r.text
+    assert body.startswith("﻿") and "Nome;Telefone" in body and '"Bia; Souza"' in body and "+5581999990601" in body
+    r = await client.get(f"/api/clinic/{tid}/export/appointments.csv", headers=h)
+    assert r.status_code == 200 and "Data e hora;Serviço" in r.text
+
+    ah = await _admin(client, clean_db)
+    r = await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"billingCycle": "ANNUAL"})
+    assert r.status_code == 200
+    billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
+    assert billing["billingCycle"] == "ANNUAL"
+    pro = next(p for p in billing["plans"] if p["plan"] == "PRO")
+    assert pro["priceCentsYear"] == pro["priceCentsMonth"] * 11
+    listed = (await client.get("/api/admin/tenants", headers=ah, params={"search": "Export SA"})).json()["items"][0]
+    assert listed["billingCycle"] == "ANNUAL"
+    bad = await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"billingCycle": "WEEKLY"})
+    assert bad.status_code == 422
+    public = (await client.get("/api/public/config")).json()
+    assert "demo" in public["sales"]

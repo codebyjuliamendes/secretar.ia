@@ -51,7 +51,7 @@ export default function PatientsPage() {
   const people = (tenant.niche?.people ?? "Pacientes").toLowerCase();
   return (
     <>
-      <PageHeader title={tenant.niche?.people ?? "Pacientes"} description={`Todo contato pelo WhatsApp vira um ${person} automaticamente.`} action={<Button onClick={() => setModal(true)}>Novo {person}</Button>} />
+      <PageHeader title={tenant.niche?.people ?? "Pacientes"} description={`Todo contato pelo WhatsApp vira um ${person} automaticamente.`} action={<div className="flex gap-2"><a href={`/api/backend/clinic/${tenant.id}/export/patients.csv`} download="contatos.csv" className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-surface-2">Exportar planilha</a><Button onClick={() => setModal(true)}>Novo {person}</Button></div>} />
       <Input aria-label="Buscar paciente" placeholder="Buscar por nome ou telefone" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} className="mb-4 sm:max-w-xs" />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />

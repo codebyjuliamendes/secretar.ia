@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     # Aparece no botão "Falar com a Júlia" do plano Enterprise e no rodapé da landing.
     sales_whatsapp: str = ""
     sales_contact_name: str = "Júlia"
+    # WhatsApp da conta demo (só dígitos): botão "Converse com a assistente agora" na landing. Vazio = sem botão.
+    demo_whatsapp: str = ""
     # Para onde vão os alertas operacionais (cota em 80%/100%, relatórios com erro). Vazio = SUPER_ADMIN_EMAIL.
     alerts_email: str = ""
 

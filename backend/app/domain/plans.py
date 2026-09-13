@@ -122,12 +122,16 @@ def feature_access_view(tenant) -> dict:
     }
 
 
+ANNUAL_MONTHS = 11  # ciclo anual paga 11 meses (um de desconto); ajustável aqui
+
+
 def plan_public_view(plan: Plan) -> dict:
     lim = PLAN_LIMITS[plan]
     return {
         "plan": plan.value,
         "label": lim.label,
         "priceFrom": lim.price_from,
+        "priceCentsYear": lim.price_cents_month * ANNUAL_MONTHS,  # anual: 11 pelo preço de 12
         "aiMessagesPerMonth": lim.ai_messages_per_month,
         "maxPatients": lim.max_patients,
         "maxMembers": lim.max_members,

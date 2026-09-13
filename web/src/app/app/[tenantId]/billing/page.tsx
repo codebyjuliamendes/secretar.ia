@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, ErrorState, LinkButton, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
+import { CYCLE_LABEL, PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
 import type { Billing, Plan } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
@@ -88,7 +88,7 @@ export default function BillingPage() {
         <div className="space-y-4">
           <Card title="Assinatura" action={<Badge tone={STATUS_TONE[data.status]}>{STATUS_LABEL[data.status]}</Badge>}>
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
-              <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}</dd></div>
+              <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}{data.billingCycle === "ANNUAL" && <span className="ml-2 text-xs font-normal text-muted">ciclo anual</span>}</dd></div>
               <div><dt className="text-muted">Período</dt><dd className="font-medium">{data.usage.period}</dd></div>
               <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no cartão" : data.paidUntil ? `Paga até ${formatDate(data.paidUntil)}${data.paymentMethod ? ` via ${PAYMENT_LABEL[data.paymentMethod] ?? data.paymentMethod}` : ""}` : data.status === "PENDING" ? "Aguardando liberação" : "Liberada pela equipe"}</dd></div>
             </dl>
@@ -152,6 +152,7 @@ export default function BillingPage() {
                 <div key={p.plan} className={cx("flex flex-col rounded-xl border bg-surface p-5", current ? "border-primary" : "border-border")}>
                   <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{current && <Badge tone="primary">atual</Badge>}</div>
                   <p className="mt-2 text-2xl font-semibold">{p.priceFrom && <span className="text-sm font-normal text-muted">a partir de </span>}{brl(p.priceCentsMonth)}<span className="text-sm font-normal text-muted">/mês</span></p>
+                  <p className="text-xs text-muted">ou {brl(p.priceCentsYear)}/ano (11 mensalidades{data.billingCycle === "ANNUAL" && current ? ", seu ciclo" : ""})</p>
                   <ul className="mt-3 space-y-1 text-sm text-muted">
                     <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
                     <li>{limitLabel(p.maxPatients)} pacientes</li>

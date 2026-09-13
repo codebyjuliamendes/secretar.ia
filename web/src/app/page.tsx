@@ -1,5 +1,6 @@
 import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
+import { demoLink } from "@/lib/format";
 import { NICHE_PAGES } from "@/lib/niche-pages";
 import { getPublicConfig } from "@/lib/server/public-config";
 import type { Metadata } from "next";
@@ -31,6 +32,7 @@ const FEATURES = [
 
 export default async function Home() {
   const config = await getPublicConfig();
+  const demo = demoLink(config?.sales);
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
@@ -56,12 +58,20 @@ export default async function Home() {
           Cadastre o negócio, conecte o WhatsApp lendo um QR Code e deixe a IA cuidar do primeiro atendimento. Sua equipe
           confirma os agendamentos e assume quando alguém pedir uma pessoa.
         </p>
-        <div className="mt-8 flex justify-center gap-3">
-          <LinkButton href="/register">Criar conta</LinkButton>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          {demo && (
+            <LinkButton href={demo} external>
+              Converse com a assistente agora
+            </LinkButton>
+          )}
+          <LinkButton href="/register" variant={demo ? "secondary" : "primary"}>
+            Criar conta
+          </LinkButton>
           <LinkButton href="/login" variant="secondary">
             Já tenho conta
           </LinkButton>
         </div>
+        {demo && <p className="mt-3 text-xs text-muted">Abre o WhatsApp de uma conta de demonstração. Pergunte preço, peça um horário, mande um áudio.</p>}
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2" aria-label="Funcionalidades">

@@ -58,7 +58,7 @@ function AppointmentsInner() {
 
   return (
     <>
-      <PageHeader title="Agenda" description="Pedidos feitos pela IA chegam como pendentes até a confirmação da equipe." action={<Button onClick={() => setModal(true)}>Novo agendamento</Button>} />
+      <PageHeader title="Agenda" description="Pedidos feitos pela IA chegam como pendentes até a confirmação da equipe." action={<div className="flex gap-2"><a href={`/api/backend/clinic/${tenant.id}/export/appointments.csv`} download="agendamentos.csv" className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-surface-2">Exportar planilha</a><Button onClick={() => setModal(true)}>Novo agendamento</Button></div>} />
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Input aria-label="Buscar por paciente, telefone ou serviço" placeholder="Buscar paciente, telefone ou serviço" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} className="sm:max-w-xs" />
         <Select aria-label="Filtrar por status" value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className="sm:w-56">

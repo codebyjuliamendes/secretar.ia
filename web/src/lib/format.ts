@@ -71,6 +71,14 @@ export function salesLink(sales: { whatsapp: string } | undefined, text: string)
   return `https://wa.me/${sales.whatsapp}?text=${encodeURIComponent(text)}`;
 }
 
+export const CYCLE_LABEL: Record<string, string> = { MONTHLY: "mensal", ANNUAL: "anual" };
+
+/** Link do WhatsApp da conta demo, para quem quer testar antes de cadastrar. */
+export function demoLink(sales: { demo?: string } | undefined): string | null {
+  if (!sales?.demo) return null;
+  return `https://wa.me/${sales.demo}?text=${encodeURIComponent("Oi! Quero ver como a assistente funciona.")}`;
+}
+
 export const PAYMENT_LABEL: Record<string, string> = { PIX: "Pix", BOLETO: "boleto", STRIPE: "cartão", OUTRO: "outro" };
 
 export const PLAN_LABEL: Record<Plan, string> = {

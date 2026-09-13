@@ -210,7 +210,8 @@ def price_id_for(settings: Settings, plan: Plan) -> str:
 def sales_contact(settings: Settings) -> dict[str, str]:
     """Quem o cliente procura para Enterprise ou condições fora do checkout."""
     digits = "".join(ch for ch in settings.sales_whatsapp if ch.isdigit())
-    return {"whatsapp": digits, "name": settings.sales_contact_name}
+    demo = "".join(ch for ch in settings.demo_whatsapp if ch.isdigit())
+    return {"whatsapp": digits, "name": settings.sales_contact_name, "demo": demo}
 
 
 def checkout_enabled(settings: Settings) -> bool:
@@ -238,6 +239,7 @@ async def billing_overview(settings: Settings, tenant) -> dict[str, Any]:
         "plans": [plan_public_view(p) for p in Plan],
         "sales": sales_contact(settings),
         "paidUntil": tenant.paidUntil.isoformat() if tenant.paidUntil else None,
+        "billingCycle": tenant.billingCycle or "MONTHLY",
         "paymentMethod": tenant.paymentMethod or "",
     }
 

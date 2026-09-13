@@ -25,6 +25,7 @@ export function Pricing({ config, people = "contatos", niche }: { config: Public
                 {brl(p.priceCentsMonth)}
                 <span className="text-sm font-normal text-muted">/mês</span>
               </p>
+              <p className="mt-1 text-xs text-muted">ou {brl(p.priceCentsYear)}/ano (11 mensalidades)</p>
               <ul className="mt-3 flex-1 space-y-1 text-sm text-muted">
                 <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
                 <li>

@@ -42,6 +42,7 @@ class TenantUpdateIn(BaseModel):
     paidUntil: datetime | None = None  # cobrança fora do Stripe: "pago até"; null limpa
     paymentMethod: Literal["", "PIX", "BOLETO", "STRIPE", "OUTRO"] | None = None
     billingNote: str | None = Field(default=None, max_length=500)
+    billingCycle: Literal["MONTHLY", "ANNUAL"] | None = None
 
 
 @router.get("/niches")

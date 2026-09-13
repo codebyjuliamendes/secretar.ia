@@ -532,6 +532,35 @@ async def put_rules(
     return {"rules": rules, "slotMinutes": slot}
 
 
+@router.get("/export/patients.csv")
+async def export_patients(ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_VIEW))):
+    """Planilha de contatos (CSV; abre no Excel). Portabilidade dos dados da conta."""
+    from fastapi.responses import Response
+
+    from app.services import exports
+
+    body = await exports.patients_csv(ctx.tenant)
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="contatos.csv"'},
+    )
+
+
+@router.get("/export/appointments.csv")
+async def export_appointments(ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW))):
+    from fastapi.responses import Response
+
+    from app.services import exports
+
+    body = await exports.appointments_csv(ctx.tenant)
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="agendamentos.csv"'},
+    )
+
+
 @router.get("/services")
 async def list_services(
     active: bool = Query(default=False),
