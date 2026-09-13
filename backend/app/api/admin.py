@@ -8,8 +8,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
 
+from app.config import Settings
 from app.db import db
-from app.deps import CurrentUser, client_ip, require_super_admin
+from app.deps import CurrentUser, client_ip, get_settings_dep, require_super_admin
 from app.domain.phones import normalize_phone
 from app.errors import AppError
 from app.jobs.queue import registered_tasks
@@ -38,6 +39,9 @@ class TenantUpdateIn(BaseModel):
     status: StatusLiteral | None = None
     niche: str | None = Field(default=None, max_length=40)
     hardLimit: bool | None = None
+    paidUntil: datetime | None = None  # cobrança fora do Stripe: "pago até"; null limpa
+    paymentMethod: Literal["", "PIX", "BOLETO", "STRIPE", "OUTRO"] | None = None
+    billingNote: str | None = Field(default=None, max_length=500)
 
 
 @router.get("/niches")
@@ -80,6 +84,33 @@ async def update_tenant(
     return await tenant_service.admin_update_tenant(
         tenant_id, data.model_dump(exclude_unset=True), actor_user_id=user.id, ip=client_ip(request)
     )
+
+
+@router.post("/tenants/{tenant_id}/welcome")
+async def send_welcome(
+    tenant_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_super_admin),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """E-mail de boas-vindas com o passo a passo para os OWNERs; devolve também o link wa.me com o mesmo texto."""
+    from app.services.onboarding import send_welcome as _send
+
+    return await _send(settings, tenant_id, actor_user_id=user.id, ip=client_ip(request))
+
+
+@router.post("/tenants/{tenant_id}/report")
+async def resend_report(
+    tenant_id: str,
+    period: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    user: CurrentUser = Depends(require_super_admin),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """(Re)envia o relatório mensal de um período (padrão: mês passado) para os OWNERs da conta."""
+    from app.services.reports import previous_period, send_report
+
+    tenant = await tenant_service.get_tenant_or_404(tenant_id)
+    return await send_report(settings, tenant, period or previous_period(), force=True)
 
 
 @router.get("/jobs")

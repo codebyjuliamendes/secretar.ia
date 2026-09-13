@@ -19,6 +19,7 @@ SEND_EMAIL = "send-email"
 UPSELL_CAMPAIGN = "upsell-campaign"
 SYNC_CALENDAR = "sync-calendar"
 PULL_CALENDAR = "pull-calendar"
+MONTHLY_REPORTS = "monthly-reports"
 
 
 @register_task(SEND_WHATSAPP)
@@ -63,6 +64,14 @@ async def upsell_campaign(payload: dict[str, Any]) -> None:
     tenant_id = payload.get("tenantId")
     result = await run_upsell_campaign(tenant_id=tenant_id)
     log.info("upsell_campaign_done", **result)
+
+
+@register_task(MONTHLY_REPORTS)
+async def monthly_reports(payload: dict[str, Any]) -> None:
+    from app.services.reports import send_monthly_reports
+
+    result = await send_monthly_reports(get_settings())
+    log.info("monthly_reports_task_done", **result)
 
 
 @register_task(SYNC_CALENDAR)

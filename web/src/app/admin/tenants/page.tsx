@@ -2,10 +2,10 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
-import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
+import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, LinkButton, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatPhone, limitLabel } from "@/lib/format";
+import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatDateTime, formatPhone, limitLabel } from "@/lib/format";
 import type { AdminTenant, Paginated, Plan, TenantStatus } from "@/lib/types";
 import { useDebounced, useQuery } from "@/lib/use-query";
 
@@ -37,6 +37,8 @@ export default function AdminTenantsPage() {
 
   const updating = useRef<Set<string>>(new Set());
   const [confirmStatus, setConfirmStatus] = useState<{ tenant: AdminTenant; status: TenantStatus } | null>(null);
+  const [detail, setDetail] = useState<AdminTenant | null>(null);
+  const [now] = useState(() => Date.now()); // uma leitura por carga: render puro
 
   async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status" | "niche" | "hardLimit">>) {
     if (updating.current.has(t.id)) return;
@@ -71,11 +73,11 @@ export default function AdminTenantsPage() {
       ) : (
         <>
           <Table>
-            <thead><tr><Th>Negócio</Th><Th>Status</Th><Th>Plano</Th><Th>Nicho</Th><Th>IA no mês</Th><Th>Contatos</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
+            <thead><tr><Th>Negócio</Th><Th>Status</Th><Th>Plano</Th><Th>Nicho</Th><Th>IA no mês</Th><Th>Onboarding</Th><Th>Pago até</Th><Th>Contatos</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
             <tbody>
               {data.items.map((t) => (
                 <tr key={t.id}>
-                  <Td><p className="font-medium">{t.name}</p><p className="text-xs text-muted">{formatPhone(t.whatsapp)}</p></Td>
+                  <Td><button type="button" className="text-left font-medium text-primary hover:underline" onClick={() => setDetail(t)}>{t.name}</button><p className="text-xs text-muted">{formatPhone(t.whatsapp)}</p></Td>
                   <Td>
                     <Select aria-label={`Status de ${t.name}`} value={t.status} onChange={(e) => { const s = e.target.value as TenantStatus; if (s === "SUSPENDED" || s === "CANCELED") setConfirmStatus({ tenant: t, status: s }); else void update(t, { status: s }); }} className="w-44">
                       {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
@@ -92,6 +94,8 @@ export default function AdminTenantsPage() {
                     </Select>
                   </Td>
                   <Td><QuotaCell t={t} onToggle={(v) => update(t, { hardLimit: v })} /></Td>
+                  <Td><ChecklistBadge t={t} onOpen={() => setDetail(t)} /></Td>
+                  <Td><PaidUntilBadge t={t} now={now} /></Td>
                   <Td>{t.patientCount}</Td><Td>{t.appointmentCount}</Td><Td>{t.memberCount}</Td>
                   <Td><Badge tone={t.whatsappConnected ? "success" : "neutral"}>{t.whatsappConnected ? "conectado" : "off"}</Badge></Td>
                   <Td className="whitespace-nowrap">{formatDate(t.createdAt)}<Badge tone={STATUS_TONE[t.status]} className="sr-only">{STATUS_LABEL[t.status]}</Badge></Td>
@@ -103,6 +107,7 @@ export default function AdminTenantsPage() {
         </>
       )}
       <CreateTenantModal open={modal} onClose={() => setModal(false)} onCreated={() => { setModal(false); void refetch(); }} />
+      <TenantDetailModal tenant={detail} onClose={() => setDetail(null)} onChanged={async () => { await refetch(); }} />
     <ConfirmDialog
         open={!!confirmStatus}
         onClose={() => setConfirmStatus(null)}
@@ -117,6 +122,146 @@ export default function AdminTenantsPage() {
         confirmLabel="Confirmar"
       />
       </>
+  );
+}
+
+const CHECK_LABEL: Record<keyof AdminTenant["checklist"], string> = { plan: "Plano liberado", whatsapp: "WhatsApp conectado", services: "Serviços cadastrados", welcome: "Boas-vindas enviadas" };
+
+function ChecklistBadge({ t, onOpen }: { t: AdminTenant; onOpen: () => void }) {
+  const done = Object.values(t.checklist).filter(Boolean).length;
+  const total = Object.keys(t.checklist).length;
+  return (
+    <button type="button" onClick={onOpen} className="text-left" aria-label={`Onboarding de ${t.name}: ${done} de ${total}`}>
+      <Badge tone={done === total ? "success" : done >= 2 ? "warning" : "neutral"}>{done}/{total}</Badge>
+    </button>
+  );
+}
+
+function PaidUntilBadge({ t, now }: { t: AdminTenant; now: number }) {
+  if (t.hasSubscription) return <Badge tone="info">cartão</Badge>;
+  if (!t.paidUntil) return <span className="text-xs text-muted">—</span>;
+  const days = Math.floor((new Date(t.paidUntil).getTime() - now) / 86_400_000);
+  const tone = days < 0 ? "danger" : days <= 7 ? "warning" : "success";
+  return <Badge tone={tone}>{formatDate(t.paidUntil)}{t.paymentMethod ? ` · ${PAYMENT_LABEL[t.paymentMethod] ?? t.paymentMethod}` : ""}</Badge>;
+}
+
+type WelcomeResult = { emails: string[]; sentAt: string; whatsappLink: string | null };
+type ReportResult = { period: string; emails: string[]; data: Record<string, number> };
+
+/** Tudo que a Júlia faz com uma conta além de plano/status/nicho: checklist, boas-vindas, cobrança e relatório. */
+function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant | null; onClose: () => void; onChanged: () => Promise<void> }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<"welcome" | "billing" | "report" | null>(null);
+  const [welcome, setWelcome] = useState<WelcomeResult | null>(null);
+  const [report, setReport] = useState<ReportResult | null>(null);
+  const [method, setMethod] = useState("");
+  const [paidUntil, setPaidUntil] = useState("");
+  const [note, setNote] = useState("");
+  const [key, setKey] = useState<string | null>(null);
+
+  // Reidrata o formulário quando a conta aberta muda.
+  if (tenant && key !== tenant.id) {
+    setKey(tenant.id);
+    setMethod(tenant.paymentMethod || "PIX");
+    setPaidUntil(tenant.paidUntil ? tenant.paidUntil.slice(0, 10) : "");
+    setNote(tenant.billingNote ?? "");
+    setWelcome(null);
+    setReport(null);
+  }
+  if (!tenant) return null;
+
+  async function sendWelcome() {
+    if (!tenant) return;
+    setBusy("welcome");
+    try {
+      const r = await api.post<WelcomeResult>(`admin/tenants/${tenant.id}/welcome`);
+      setWelcome(r);
+      toast.success(r.emails.length ? `Boas-vindas enviadas para ${r.emails.join(", ")}.` : "Conta sem responsável com e-mail; use o link do WhatsApp.");
+      await onChanged();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveBilling() {
+    if (!tenant) return;
+    setBusy("billing");
+    try {
+      await api.patch(`admin/tenants/${tenant.id}`, {
+        paymentMethod: method,
+        paidUntil: paidUntil ? new Date(`${paidUntil}T23:59:59`).toISOString() : null,
+        billingNote: note || null,
+      });
+      toast.success("Cobrança registrada.");
+      await onChanged();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function sendReport() {
+    if (!tenant) return;
+    setBusy("report");
+    try {
+      const r = await api.post<ReportResult>(`admin/tenants/${tenant.id}/report`);
+      setReport(r);
+      toast.success(r.emails.length ? `Relatório de ${r.period} enviado.` : "Relatório gerado, mas a conta não tem responsável com e-mail.");
+      await onChanged();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={tenant.name} description={`${formatPhone(tenant.whatsapp)} · ${PLAN_LABEL[tenant.plan]} · ${STATUS_LABEL[tenant.status]}`} size="lg">
+      <div className="space-y-6">
+        <section>
+          <h3 className="text-sm font-semibold">Onboarding</h3>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {(Object.keys(tenant.checklist) as (keyof AdminTenant["checklist"])[]).map((k) => (
+              <li key={k} className="flex items-center gap-2 text-sm"><Badge tone={tenant.checklist[k] ? "success" : "neutral"}>{tenant.checklist[k] ? "ok" : "falta"}</Badge>{CHECK_LABEL[k]}</li>
+            ))}
+          </ul>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={sendWelcome} loading={busy === "welcome"}>{tenant.welcomeSentAt ? "Reenviar boas-vindas" : "Enviar boas-vindas por e-mail"}</Button>
+            {welcome?.whatsappLink && <LinkButton href={welcome.whatsappLink} external size="sm" variant="secondary">Mandar o mesmo texto no WhatsApp</LinkButton>}
+            {tenant.welcomeSentAt && <span className="text-xs text-muted">enviadas em {formatDateTime(tenant.welcomeSentAt)}</span>}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold">Cobrança</h3>
+          {tenant.hasSubscription ? (
+            <p className="mt-1 text-sm text-muted">Esta conta paga por cartão no Stripe; o status acompanha o gateway.</p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-muted">Pix, boleto ou transferência: registre até quando está pago. Data futura reativa uma conta pendente; vencida há mais de 3 dias, a rotina diária pausa a assistente.</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-[140px_180px_1fr]">
+                <Field label="Forma" htmlFor="pay-method"><Select id="pay-method" value={method} onChange={(e) => setMethod(e.target.value)}>{["PIX", "BOLETO", "OUTRO"].map((m) => <option key={m} value={m}>{PAYMENT_LABEL[m]}</option>)}</Select></Field>
+                <Field label="Pago até" htmlFor="pay-until"><Input id="pay-until" type="date" value={paidUntil} onChange={(e) => setPaidUntil(e.target.value)} /></Field>
+                <Field label="Observação" htmlFor="pay-note"><Input id="pay-note" placeholder="ex.: Pix de 750 em 10/09" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+              </div>
+              <div className="mt-2 flex gap-2"><Button size="sm" onClick={saveBilling} loading={busy === "billing"}>Registrar pagamento</Button></div>
+            </>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold">Relatório mensal</h3>
+          <p className="mt-1 text-xs text-muted">Vai sozinho todo início de mês para os responsáveis{tenant.lastReportPeriod ? ` (último: ${tenant.lastReportPeriod})` : ""}. Aqui você reenvia o do mês passado.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={sendReport} loading={busy === "report"}>Enviar relatório do mês passado</Button>
+            {report && <span className="text-xs text-muted">{report.data.answered} mensagens · {report.data.appointments} agendamentos · {report.data.new_people} novos contatos</span>}
+          </div>
+        </section>
+      </div>
+    </Modal>
   );
 }
 

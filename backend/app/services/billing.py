@@ -237,6 +237,8 @@ async def billing_overview(settings: Settings, tenant) -> dict[str, Any]:
         "usage": await usage_summary(tenant),
         "plans": [plan_public_view(p) for p in Plan],
         "sales": sales_contact(settings),
+        "paidUntil": tenant.paidUntil.isoformat() if tenant.paidUntil else None,
+        "paymentMethod": tenant.paymentMethod or "",
     }
 
 

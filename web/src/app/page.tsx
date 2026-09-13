@@ -1,6 +1,14 @@
 import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
+import { NICHE_PAGES } from "@/lib/niche-pages";
 import { getPublicConfig } from "@/lib/server/public-config";
+import type { Metadata } from "next";
+import Link from "next/link";
+
+export const metadata: Metadata = {
+  robots: { index: true, follow: true },
+  description: "Assistente virtual no WhatsApp para clínicas, salões, pet shops, escritórios e mais: agenda, contatos e retorno automático.",
+};
 
 const FEATURES = [
   {
@@ -40,13 +48,13 @@ export default async function Home() {
       </header>
 
       <section className="my-auto py-16 text-center">
-        <p className="mb-3 text-sm font-medium uppercase tracking-widest text-primary">Para clínicas de saúde e estética</p>
+        <p className="mb-3 text-sm font-medium uppercase tracking-widest text-primary">Para clínicas, salões, pet shops, escritórios e mais</p>
         <h1 className="mx-auto max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">
-          Sua secretária virtual no WhatsApp, com agenda, CRM e retenção.
+          Sua assistente virtual no WhatsApp, com agenda, contatos e retorno automático.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-lg text-muted">
-          Cadastre a clínica, conecte o WhatsApp lendo um QR Code e deixe a IA cuidar do primeiro atendimento. Sua equipe
-          confirma os agendamentos e assume quando o paciente pedir.
+          Cadastre o negócio, conecte o WhatsApp lendo um QR Code e deixe a IA cuidar do primeiro atendimento. Sua equipe
+          confirma os agendamentos e assume quando alguém pedir uma pessoa.
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <LinkButton href="/register">Criar conta</LinkButton>
@@ -65,7 +73,19 @@ export default async function Home() {
         ))}
       </section>
 
-      <Pricing config={config} people="pacientes" />
+      <section className="mt-16" aria-label="Para o seu ramo">
+        <h2 className="text-center text-2xl font-semibold tracking-tight">Feita para o seu ramo</h2>
+        <p className="mx-auto mt-2 max-w-xl text-center text-sm text-muted">A mesma assistente, com o vocabulário e os cuidados de cada negócio. Veja a sua página:</p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {NICHE_PAGES.map((n) => (
+            <Link key={n.slug} href={`/para/${n.slug}`} className="rounded-full border border-border px-4 py-1.5 text-sm hover:border-primary hover:text-primary">
+              {n.label}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <Pricing config={config} people="contatos" />
 
       <footer className="mt-12 text-center text-xs text-muted">© {new Date().getFullYear()} Secretar.ia</footer>
     </main>

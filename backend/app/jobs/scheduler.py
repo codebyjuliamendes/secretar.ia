@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.db import db
 from app.jobs.queue import enqueue
-from app.jobs.tasks import UPSELL_CAMPAIGN
+from app.jobs.tasks import MONTHLY_REPORTS, UPSELL_CAMPAIGN
 from app.logging import get_logger
 from app.security.ratelimit import purge_expired_buckets
 
@@ -42,6 +42,11 @@ async def run_daily_maintenance() -> dict:
     """Rotinas diárias: campanha de upsell e limpeza de dados técnicos antigos."""
     now = datetime.now(UTC)
     await enqueue(UPSELL_CAMPAIGN, {"tenantId": None})
+    await enqueue(MONTHLY_REPORTS, {})  # só envia para quem ainda não recebeu o mês fechado
+    from app.config import get_settings
+    from app.services.manual_billing import sweep_overdue
+
+    overdue = await sweep_overdue(get_settings(), now)
     removed_msgs = await db.processedmessage.delete_many(where={"processedAt": {"lt": now - timedelta(days=30)}})
     removed_tokens = await db.refreshtoken.delete_many(where={"expiresAt": {"lt": now - timedelta(days=1)}})
     removed_verif = await db.verificationtoken.delete_many(where={"expiresAt": {"lt": now - timedelta(days=1)}})
@@ -59,6 +64,7 @@ async def run_daily_maintenance() -> dict:
         "refreshTokensRemoved": removed_tokens,
         "verificationTokensRemoved": removed_verif,
         "jobsRemoved": removed_jobs,
+        "tenantsOverdue": overdue,
     }
     log.info("daily_maintenance_done", **result)
     return result

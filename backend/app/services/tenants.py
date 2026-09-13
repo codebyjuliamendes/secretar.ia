@@ -8,7 +8,7 @@ from app.db import db
 from app.domain.niches import NICHES, fill, niche_for, niche_view
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
-from app.services import audit
+from app.services import audit, onboarding
 from generated_prisma.errors import UniqueViolationError
 
 ALLOWED_TENANT_STATUSES = {"PENDING", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
@@ -97,10 +97,14 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
     rows = await db.query_raw(
         """
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
-               t."whatsappConnected", t."createdAt", t."hardLimit",
+               t."whatsappConnected", t."createdAt", t."hardLimit", t."paidUntil", t."paymentMethod",
+               t."billingNote", t."welcomeSentAt", t."lastReportPeriod", t."subscriptionId",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
-               COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth"
+               COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth",
+               COALESCE(s.cnt, 0) AS "serviceCount"
         FROM "Tenant" t
+        LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Service" WHERE active GROUP BY "tenantId") s
+               ON s."tenantId" = t.id
         LEFT JOIN "UsageCounter" u ON u."tenantId" = t.id AND u.metric = 'ai_messages'
                                    AND u.period = to_char(NOW(), 'YYYY-MM')
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Appointment" GROUP BY "tenantId") a ON a."tenantId" = t.id
@@ -134,6 +138,14 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "aiMessagesThisMonth": int(r["aiMessagesThisMonth"] or 0),
                 "aiMessagesLimit": limits_for(r["plan"]).ai_messages_per_month,
                 "hardLimit": bool(r["hardLimit"]),
+                "serviceCount": int(r["serviceCount"] or 0),
+                "paidUntil": _iso(r.get("paidUntil")),
+                "paymentMethod": r.get("paymentMethod") or "",
+                "billingNote": r.get("billingNote"),
+                "welcomeSentAt": _iso(r.get("welcomeSentAt")),
+                "lastReportPeriod": r.get("lastReportPeriod"),
+                "hasSubscription": bool(r.get("subscriptionId")),
+                "checklist": onboarding.checklist(r),
             }
         )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -215,13 +227,19 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
 
 async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_user_id: str, ip: str | None) -> dict:
     tenant = await get_tenant_or_404(tenant_id)
-    payload = {k: v for k, v in data.items() if v is not None}
+    payload = {k: v for k, v in data.items() if v is not None or k == "paidUntil"}  # paidUntil=null limpa
     if "status" in payload and payload["status"] not in ALLOWED_TENANT_STATUSES:
         raise ConflictError("Status inválido.", code="invalid_status")
     if "niche" in payload and payload["niche"] not in NICHES:
         raise ConflictError("Nicho inválido.", code="invalid_niche")
     if "plan" in payload and "status" not in payload and str(tenant.status) == "PENDING":
         payload["status"] = "ACTIVE"  # liberar o plano é o gesto de ativação
+    paid_until = payload.get("paidUntil")
+    if paid_until is not None and "status" not in payload and str(tenant.status) in ("PENDING", "PAST_DUE"):
+        from datetime import UTC, datetime
+
+        if paid_until > datetime.now(UTC):
+            payload["status"] = "ACTIVE"  # registrar pagamento futuro reativa a conta
     if "niche" in payload and "tone" not in payload and payload["niche"] != tenant.niche:
         # o nicho sugere o tom; só troca se o cliente ainda estiver no tom sugerido pelo nicho anterior
         if tenant.tone == niche_for(tenant.niche).tone:

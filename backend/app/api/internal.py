@@ -53,6 +53,13 @@ async def ready():
     )
 
 
+@cron_router.post("/monthly-reports", dependencies=[Depends(require_cron_secret)])
+async def cron_monthly_reports(settings: Settings = Depends(get_settings_dep)):
+    from app.services.reports import send_monthly_reports
+
+    return await send_monthly_reports(settings)
+
+
 @cron_router.post("/upsell", dependencies=[Depends(require_cron_secret)])
 async def cron_upsell():
     return await run_upsell_campaign()

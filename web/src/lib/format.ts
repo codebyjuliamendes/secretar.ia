@@ -71,6 +71,8 @@ export function salesLink(sales: { whatsapp: string } | undefined, text: string)
   return `https://wa.me/${sales.whatsapp}?text=${encodeURIComponent(text)}`;
 }
 
+export const PAYMENT_LABEL: Record<string, string> = { PIX: "Pix", BOLETO: "boleto", STRIPE: "cartão", OUTRO: "outro" };
+
 export const PLAN_LABEL: Record<Plan, string> = {
   BASIC: "Essencial",
   PRO: "Profissional",

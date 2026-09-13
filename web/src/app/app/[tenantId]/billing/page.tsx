@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, ErrorState, LinkButton, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, limitLabel, salesLink } from "@/lib/format";
+import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
 import type { Billing, Plan } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
@@ -90,7 +90,7 @@ export default function BillingPage() {
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
               <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}</dd></div>
               <div><dt className="text-muted">Período</dt><dd className="font-medium">{data.usage.period}</dd></div>
-              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : data.status === "PENDING" ? "Aguardando liberação" : "Liberada pela equipe"}</dd></div>
+              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no cartão" : data.paidUntil ? `Paga até ${formatDate(data.paidUntil)}${data.paymentMethod ? ` via ${PAYMENT_LABEL[data.paymentMethod] ?? data.paymentMethod}` : ""}` : data.status === "PENDING" ? "Aguardando liberação" : "Liberada pela equipe"}</dd></div>
             </dl>
             {data.usage.aiMessages.limit > 0 && data.usage.aiMessages.used >= data.usage.aiMessages.limit && (
               <div className="mt-4">

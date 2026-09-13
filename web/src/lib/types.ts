@@ -263,6 +263,8 @@ export interface Billing {
   usage: Usage;
   plans: PlanLimits[];
   sales: SalesContact;
+  paidUntil: string | null;
+  paymentMethod: string;
 }
 
 export interface SalesContact {
@@ -325,6 +327,14 @@ export interface AdminTenant {
   aiMessagesThisMonth: number;
   aiMessagesLimit: number;
   hardLimit: boolean;
+  serviceCount: number;
+  paidUntil: string | null;
+  paymentMethod: string;
+  billingNote: string | null;
+  welcomeSentAt: string | null;
+  lastReportPeriod: string | null;
+  hasSubscription: boolean;
+  checklist: { plan: boolean; whatsapp: boolean; services: boolean; welcome: boolean };
 }
 
 export interface AdminOverview {
