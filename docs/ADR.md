@@ -337,3 +337,47 @@ relatórios e varredura de vencidos. Testes novos: cota branda/dura, alertas, ap
 por nicho, boas-vindas, pagamento manual, relatório mensal, config pública. Textos de nicho e volumes por plano
 continuam ajustáveis em um único arquivo cada (`domain/niches.py`, `domain/plans.py`).
 
+## ADR-020 — Doze evoluções de crescimento aprovadas em 13/set/2026 (vender, reter e escalar)
+
+**Contexto.** Com o produto operando (ADR-019), a Julia aprovou doze ideias voltadas a vender, reduzir falta e
+sustentar contas maiores. O fio comum continua o mesmo: a operação é dela e manual; o cliente não configura nada
+que a plataforma possa decidir sozinha.
+**Decisões.**
+1. **Demonstração ao vivo.** `DEMO_WHATSAPP` gera o botão "Converse com a assistente agora" na landing e nas
+   páginas por ramo. Quem testa antes de cadastrar converte mais e o custo é um chip.
+2. **Indique e ganhe.** `Tenant.referralCode` (6 caracteres) e `referredById`; o cadastro aceita `?ref=` e o campo
+   opcional; o cliente compartilha por link ou WhatsApp em Plano & uso; o admin vê "indicada por" e quantas
+   indicou. O desconto é registrado na observação de cobrança (decisão de produto: nada automático no dinheiro).
+3. **Página pública de agendamento.** `/agendar/{slug}` (`services/public_booking.py`): serviço → horário livre →
+   nome e WhatsApp, sem login. Usa a MESMA agenda, as mesmas regras e a mesma trava (`lock_tenant_agenda`); o
+   pedido nasce PENDENTE com `source="WEB"`. Rate limit por IP (10 pedidos/h, 120 consultas/10 min). `slug` único
+   por conta, interruptor `publicBooking`, link copiável nas configurações.
+4. **Lembrete de véspera com confirmação por resposta.** A rotina diária manda um lembrete por compromisso entre
+   2h e 36h (`reminderSentAt` garante uma vez). "SIM" confirma, "NÃO" cancela, libera o horário, oferece
+   alternativas e aciona a lista de espera — tudo por regra, sem gastar IA (`services/engagement.py`).
+5. **Lista de espera.** Pedido de horário indisponível vira `WaitlistEntry` (um por pessoa/dia). Qualquer
+   cancelamento (IA, lembrete ou equipe) oferece a vaga aos três primeiros da fila daquele dia.
+6. **Sinal por Pix.** `depositEnabled/depositCents/pixKey`: a assistente informa valor e chave ao registrar o
+   pedido, a agenda marca "sinal pedido" (`Appointment.depositStatus`) e a equipe confirma após o comprovante.
+7. **Perguntas sem resposta.** Toda vez que a assistente encaminha por não saber, a pergunta vira
+   `UnansweredQuestion`. A tela agrupa por semelhança, "Adicionar à base" grava a resposta na base de
+   conhecimento e resolve o grupo; resumo semanal no painel e por e-mail (3+ perguntas).
+8. **Saúde da carteira.** `GET /admin/health`: pendentes, ativas sem WhatsApp há 3+ dias, uso zero em 7 dias,
+   80%+ do limite e vencendo/vencidas por Pix, com atalho para o WhatsApp de cada uma. É a lista de para quem
+   ligar hoje.
+9. **Plano anual.** `Tenant.billingCycle` (MONTHLY|ANNUAL); anual = `ANNUAL_MONTHS = 11` mensalidades. Preço anual
+   aparece nos cards públicos e no Plano & uso; o admin escolhe o ciclo e tem atalhos "+1 mês"/"+12 meses".
+10. **Voz.** Com `voiceReplies`, quem manda áudio recebe áudio: Gemini TTS → PCM → WAV → Evolution
+    `sendWhatsAppAudio`. Best-effort por desenho: TTS fora, texto longo (>900 caracteres) ou provedor sem suporte
+    caem para texto na mesma tarefa (`jobs/tasks.py::send_whatsapp_audio`).
+11. **Profissionais e unidades.** `Professional` por conta: com N ativos a agenda passa a ter capacidade N
+    (`_busy_over_capacity` conta sobreposições) e cada profissional tem a própria agenda; a IA ganhou
+    `appointment.professional` no schema e casa o nome sem acento. `parentTenantId` agrupa unidades de uma rede;
+    o dono troca de unidade no seletor do menu.
+12. **Exportação.** `GET /clinic/{id}/export/{patients,appointments}.csv` com BOM e ponto-e-vírgula (abre no
+    Excel em pt-BR), botão em Contatos e Agenda. Portabilidade tira o medo de ficar preso.
+**Consequências.** Duas migrations (`tenant_billing_cycle`, `growth_features`); contas existentes ganharam slug e
+código de indicação na própria migration. A rotina diária passou a rodar lembretes e o resumo de perguntas.
+Novos crons: `/internal/cron/reminders`. A capacidade por profissional muda o cálculo de disponibilidade para
+todas as contas — sem profissionais cadastrados o comportamento é idêntico ao anterior (capacidade 1).
+

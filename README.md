@@ -182,6 +182,10 @@ Operação manual pela equipe (ADR-019): checklist e boas-vindas no admin, cobra
 limite de mensagens que avisa em vez de cortar, relatório mensal por e-mail, importação do catálogo de serviços
 por foto/PDF, apresentação da assistente no primeiro contato, campanha de retorno pronta por nicho, Enterprise
 por conversa no WhatsApp comercial e páginas públicas por ramo (`/para/{slug}`).
+Crescimento (ADR-020): página pública de agendamento (`/agendar/{slug}`), lembrete de véspera com confirmação por
+resposta, lista de espera, sinal por Pix, "indique e ganhe", plano anual, exportação em planilha, resumo das
+perguntas que a assistente não soube responder, saúde da carteira no admin, resposta em áudio e agendas por
+profissional (com grupo de unidades).
 
 ## Segurança e multi-tenancy
 

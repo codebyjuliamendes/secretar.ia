@@ -54,6 +54,16 @@ export default function SettingsPage() {
   );
 }
 
+/** Interruptor com rótulo visível: o Switch sozinho só tem aria-label. */
+function SwitchRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-sm font-medium">{label}</p>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
 function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSettings; canManage: boolean; onSaved: () => Promise<void> | void }) {
   const { tenant } = useTenant();
   const toast = useToast();
@@ -94,7 +104,7 @@ function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSetti
           </div>
         </fieldset>
         <div className="rounded-lg border border-border p-3">
-          <Switch checked={form.introEnabled} onChange={(v) => setForm({ ...form, introEnabled: v })} label="Apresentar-se como assistente no primeiro contato" />
+          <SwitchRow label="Apresentar-se como assistente no primeiro contato" checked={form.introEnabled} onChange={(v) => setForm({ ...form, introEnabled: v })} />
           <p className="mt-2 text-xs text-muted">Na primeira mensagem de cada pessoa, antes da resposta: “{settings.introPreview}”</p>
         </div>
         {showExtra ? (
@@ -598,11 +608,11 @@ function EngagementCard({ settings, canManage, onSaved }: { settings: TenantSett
     <Card title="Confirmação, sinal e agendamento online">
       <fieldset disabled={!canManage} className="space-y-5">
         <div className="rounded-lg border border-border p-3">
-          <Switch checked={form.reminderEnabled} onChange={(v) => setForm({ ...form, reminderEnabled: v })} label="Lembrete de véspera com confirmação por resposta" />
+          <SwitchRow label="Lembrete de véspera com confirmação por resposta" checked={form.reminderEnabled} onChange={(v) => setForm({ ...form, reminderEnabled: v })} />
           <p className="mt-2 text-xs text-muted">Na véspera: “{tenant.name}: {`{serviço}`} amanhã às {`{hora}`}. Responda SIM para confirmar ou NÃO para cancelar.” Quem responde NÃO libera o horário, e quem estava na lista de espera daquele dia é avisado na hora.</p>
         </div>
         <div className="rounded-lg border border-border p-3">
-          <Switch checked={form.depositEnabled} onChange={(v) => setForm({ ...form, depositEnabled: v })} label="Pedir sinal por Pix para reservar o horário" />
+          <SwitchRow label="Pedir sinal por Pix para reservar o horário" checked={form.depositEnabled} onChange={(v) => setForm({ ...form, depositEnabled: v })} />
           <p className="mt-2 text-xs text-muted">A assistente informa o valor e a chave ao registrar o pedido; o horário só é confirmado pela equipe depois do comprovante.</p>
           {form.depositEnabled && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -612,7 +622,7 @@ function EngagementCard({ settings, canManage, onSaved }: { settings: TenantSett
           )}
         </div>
         <div className="rounded-lg border border-border p-3">
-          <Switch checked={form.publicBooking} onChange={(v) => setForm({ ...form, publicBooking: v })} label="Página pública de agendamento" />
+          <SwitchRow label="Página pública de agendamento" checked={form.publicBooking} onChange={(v) => setForm({ ...form, publicBooking: v })} />
           <p className="mt-2 text-xs text-muted">Coloque o link na bio do Instagram: a pessoa escolhe serviço e horário livre sem falar com ninguém. Usa a mesma agenda e as mesmas regras.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
             <Field label="Endereço" htmlFor="slug" error={fieldErrors.slug} hint={bookingUrl ?? "Salve para gerar o link."}>
@@ -622,7 +632,7 @@ function EngagementCard({ settings, canManage, onSaved }: { settings: TenantSett
           </div>
         </div>
         <div className="rounded-lg border border-border p-3">
-          <Switch checked={form.voiceReplies} onChange={(v) => setForm({ ...form, voiceReplies: v })} label="Responder áudio com áudio (experimental)" />
+          <SwitchRow label="Responder áudio com áudio (experimental)" checked={form.voiceReplies} onChange={(v) => setForm({ ...form, voiceReplies: v })} />
           <p className="mt-2 text-xs text-muted">Quem manda áudio recebe a resposta em áudio, com uma voz fixa. Se a voz falhar, a resposta vai em texto.</p>
         </div>
         {canManage && <Button onClick={save} loading={saving}>Salvar preferências</Button>}

@@ -110,7 +110,7 @@ export default function PublicBookingPage() {
         <div className="space-y-6">
           {data.services.length > 0 && (
             <section>
-              <h2 className="text-sm font-semibold">1. {data.niche.appointment[0].toUpperCase() + data.niche.appointment.slice(1)}</h2>
+              <h2 className="text-sm font-semibold">1. Serviço</h2>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {data.services.map((s) => (
                   <button key={s.id} type="button" onClick={() => setServiceId(s.id)} className={cx("rounded-lg border p-3 text-left text-sm", serviceId === s.id ? "border-primary bg-primary-soft" : "border-border bg-surface hover:border-primary")}>
