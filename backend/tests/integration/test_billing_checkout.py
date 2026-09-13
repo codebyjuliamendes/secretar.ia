@@ -72,10 +72,11 @@ async def test_checkout_requires_billing_manage_permission(client, clean_db):
     )
     assert invite.status_code == 201, invite.text
     # Gerente tem BILLING_VIEW mas não BILLING_MANAGE.
-    from app.security.passwords import hash_password
-
-    user = await clean_db.user.find_unique(where={"email": staff_email})
-    await clean_db.user.update(where={"id": user.id}, data={"passwordHash": hash_password("Senha1234")})
+    job = await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"})
+    token = job.payload["text"].split("token=")[1].split()[0]
+    assert (
+        await client.post("/api/auth/invites/accept", json={"token": token, "password": "Senha1234"})
+    ).status_code == 200
     login = await client.post("/api/auth/login", json={"email": staff_email, "password": "Senha1234"})
     assert login.status_code == 200, login.text
     h = {"Authorization": f"Bearer {login.json()['accessToken']}"}

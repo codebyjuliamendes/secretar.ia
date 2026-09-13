@@ -18,7 +18,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const AUTH_TOKEN_PATHS = new Set(["auth/login", "auth/register", "auth/refresh"]);
+const AUTH_TOKEN_PATHS = new Set(["auth/login", "auth/register", "auth/refresh", "auth/invites/accept"]);
 const FORWARD_HEADERS = ["content-type", "accept", "user-agent", "x-request-id"];
 const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 

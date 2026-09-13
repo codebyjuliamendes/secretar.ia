@@ -208,6 +208,24 @@ export interface Member {
   user: { id: string; name: string; email: string; emailVerified: boolean } | null;
 }
 
+export interface TeamInvite {
+  id: string;
+  email: string;
+  name: string;
+  role: TenantRole;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface InviteInfo {
+  clinicName: string;
+  email: string;
+  name: string;
+  role: TenantRole;
+  userExists: boolean;
+  expiresAt: string;
+}
+
 export interface AuditEntry {
   id: string;
   action: string;

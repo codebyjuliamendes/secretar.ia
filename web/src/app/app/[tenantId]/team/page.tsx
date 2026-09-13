@@ -7,7 +7,7 @@ import { Alert, Badge, Button, ErrorState, Field, Input, PageHeader, Select, Ske
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { ROLE_LABEL, formatDate } from "@/lib/format";
-import type { Member, TenantRole } from "@/lib/types";
+import type { Member, TeamInvite, TenantRole } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -18,7 +18,27 @@ export default function TeamPage() {
   const { me } = useSession();
   const toast = useToast();
   const canManage = tenant.role === "OWNER";
-  const { data, error, refetch } = useQuery(() => api.get<{ items: Member[] }>(`clinic/${tenant.id}/team`), [tenant.id]);
+  const { data, error, refetch } = useQuery(() => api.get<{ items: Member[]; invites: TeamInvite[] }>(`clinic/${tenant.id}/team`), [tenant.id]);
+  const [inviteBusy, setInviteBusy] = useState<string | null>(null);
+
+  async function inviteAction(inv: TeamInvite, action: "resend" | "cancel") {
+    if (inviteBusy) return;
+    setInviteBusy(inv.id);
+    try {
+      if (action === "resend") {
+        await api.post(`clinic/${tenant.id}/team/invites/${inv.id}/resend`);
+        toast.success(`Convite reenviado para ${inv.email}.`);
+      } else {
+        await api.delete(`clinic/${tenant.id}/team/invites/${inv.id}`);
+        toast.success("Convite cancelado.");
+      }
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setInviteBusy(null);
+    }
+  }
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", role: "STAFF" as TenantRole });
   const [formError, setFormError] = useState<string | null>(null);
@@ -32,7 +52,7 @@ export default function TeamPage() {
     setSaving(true);
     try {
       await api.post(`clinic/${tenant.id}/team`, form);
-      toast.success("Convite enviado por e-mail.");
+      toast.success("Convite enviado por e-mail. A pessoa entra na equipe quando aceitar.");
       setModal(false);
       setForm({ email: "", name: "", role: "STAFF" });
       await refetch();
@@ -120,7 +140,33 @@ export default function TeamPage() {
           </tbody>
         </Table>
       )}
-      <Modal open={modal} onClose={() => setModal(false)} title="Convidar para a equipe" description="A pessoa recebe um e-mail para definir a senha e acessar.">
+      {data && data.invites.length > 0 && (
+        <div className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold">Convites pendentes</h2>
+          <Table>
+            <thead><tr><Th>E-mail</Th><Th>Nome</Th><Th>Papel</Th><Th>Expira</Th>{canManage && <Th className="text-right">Ações</Th>}</tr></thead>
+            <tbody>
+              {data.invites.map((inv) => (
+                <tr key={inv.id}>
+                  <Td>{inv.email}</Td>
+                  <Td>{inv.name}</Td>
+                  <Td>{ROLE_LABEL[inv.role]}</Td>
+                  <Td>{formatDate(inv.expiresAt)}</Td>
+                  {canManage && (
+                    <Td className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="secondary" loading={inviteBusy === inv.id} disabled={!!inviteBusy} onClick={() => inviteAction(inv, "resend")}>Reenviar</Button>
+                        <Button size="sm" variant="ghost" disabled={!!inviteBusy} onClick={() => inviteAction(inv, "cancel")}>Cancelar</Button>
+                      </div>
+                    </Td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      )}
+      <Modal open={modal} onClose={() => setModal(false)} title="Convidar para a equipe" description="A pessoa recebe um e-mail com um link para aceitar. Quem ainda não tem conta cria a senha nessa hora.">
         <form onSubmit={invite} className="space-y-4">
           <Field label="Nome" htmlFor="inv-name" required><Input id="inv-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           <Field label="E-mail" htmlFor="inv-email" required><Input id="inv-email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>

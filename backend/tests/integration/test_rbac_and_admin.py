@@ -17,12 +17,11 @@ async def test_staff_cannot_change_settings_or_team(client, clean_db):
         json={"email": staff_email, "name": "Recepção", "role": "STAFF"},
     )
     assert inv.status_code == 201
-    # Convite cria usuário com senha temporária e envia link de definição de senha.
+    # Convite vira membership só quando a pessoa aceita pelo link do e-mail (criando a conta na hora).
     job = await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"})
-    token = job.payload["text"].split("token=")[1].split("&")[0]
-    assert (
-        await client.post("/api/auth/reset-password", json={"token": token, "password": "Staff1234"})
-    ).status_code == 200
+    token = job.payload["text"].split("token=")[1].split()[0]
+    accepted = await client.post("/api/auth/invites/accept", json={"token": token, "password": "Staff1234"})
+    assert accepted.status_code == 200, accepted.text
     staff = await login(client, staff_email, "Staff1234")
     hs = auth_headers(staff)
 
@@ -47,8 +46,10 @@ async def test_manager_cannot_promote_to_owner_and_last_owner_protected(client, 
     assert inv.status_code == 201
     # MANAGER não gerencia equipe (TEAM_MANAGE é só OWNER)
     job = await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"})
-    token = job.payload["text"].split("token=")[1].split("&")[0]
-    await client.post("/api/auth/reset-password", json={"token": token, "password": "Gerente123"})
+    token = job.payload["text"].split("token=")[1].split()[0]
+    assert (
+        await client.post("/api/auth/invites/accept", json={"token": token, "password": "Gerente123"})
+    ).status_code == 200
     mgr = await login(client, mgr_email, "Gerente123")
     assert (
         await client.post(
@@ -81,12 +82,17 @@ async def test_removed_member_loses_access_immediately(client, clean_db):
         json={"email": email, "name": "Temp", "role": "STAFF"},
     )
     job = await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"})
-    token = job.payload["text"].split("token=")[1].split("&")[0]
-    await client.post("/api/auth/reset-password", json={"token": token, "password": "Temp12345"})
+    token = job.payload["text"].split("token=")[1].split()[0]
+    assert (
+        await client.post("/api/auth/invites/accept", json={"token": token, "password": "Temp12345"})
+    ).status_code == 200
     tmp = await login(client, email, "Temp12345")
     assert (await client.get(f"/api/clinic/{tid}/patients", headers=auth_headers(tmp))).status_code == 200
+    assert inv.status_code == 201
+    team = (await client.get(f"/api/clinic/{tid}/team", headers=auth_headers(owner))).json()
+    membership_id = next(m["id"] for m in team["items"] if m["user"]["email"] == email)
     assert (
-        await client.delete(f"/api/clinic/{tid}/team/{inv.json()['id']}", headers=auth_headers(owner))
+        await client.delete(f"/api/clinic/{tid}/team/{membership_id}", headers=auth_headers(owner))
     ).status_code == 204
     assert (await client.get(f"/api/clinic/{tid}/patients", headers=auth_headers(tmp))).status_code == 404
     assert (await client.post("/api/auth/refresh", json={"refreshToken": tmp["refreshToken"]})).status_code == 401

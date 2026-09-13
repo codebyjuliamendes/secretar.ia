@@ -663,7 +663,30 @@ class RoleIn(BaseModel):
 
 @router.get("/team")
 async def list_team(ctx: TenantContext = Depends(require_permission(Permission.TEAM_VIEW))):
-    return {"items": await team_service.list_members(ctx.tenant_id)}
+    return {
+        "items": await team_service.list_members(ctx.tenant_id),
+        "invites": await team_service.list_invites(ctx.tenant_id),
+    }
+
+
+@router.post("/team/invites/{invite_id}/resend")
+async def resend_team_invite(
+    invite_id: str,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.TEAM_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    return await team_service.resend_invite(
+        settings, ctx.tenant, invite_id, actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
+@router.delete("/team/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_team_invite(
+    invite_id: str, request: Request, ctx: TenantContext = Depends(require_permission(Permission.TEAM_MANAGE))
+):
+    await team_service.cancel_invite(ctx.tenant_id, invite_id, actor_user_id=ctx.user.id, ip=client_ip(request))
+    return None
 
 
 @router.post("/team", status_code=status.HTTP_201_CREATED)

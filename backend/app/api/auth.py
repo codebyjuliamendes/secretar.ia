@@ -8,6 +8,7 @@ from app.deps import CurrentUser, client_ip, current_user, get_settings_dep
 from app.errors import RateLimitedError
 from app.security.ratelimit import PostgresRateLimiter
 from app.services import auth as auth_service
+from app.services import team as team_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -69,6 +70,43 @@ class ResetIn(TokenIn):
 class ChangePasswordIn(BaseModel):
     currentPassword: str = Field(min_length=1, max_length=128)
     newPassword: str = Field(min_length=8, max_length=128)
+
+
+class InviteAcceptIn(TokenIn):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+async def optional_user(
+    authorization: str | None = Header(default=None), settings: Settings = Depends(get_settings_dep)
+) -> CurrentUser | None:
+    if not authorization:
+        return None
+    return await current_user(authorization=authorization, settings=settings)
+
+
+@router.get("/invites/{token}")
+async def invite_details(token: str):
+    return await team_service.invite_info(token)
+
+
+@router.post("/invites/accept")
+async def accept_invite(
+    data: InviteAcceptIn,
+    request: Request,
+    user: CurrentUser | None = Depends(optional_user),
+    settings: Settings = Depends(get_settings_dep),
+    user_agent: str | None = Header(default=None),
+):
+    return await team_service.accept_invite(
+        settings,
+        token=data.token,
+        current_user_id=user.id if user else None,
+        name=data.name,
+        password=data.password,
+        user_agent=user_agent,
+        ip=client_ip(request),
+    )
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

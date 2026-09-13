@@ -34,6 +34,7 @@ from app.config import get_settings  # noqa: E402
 get_settings.cache_clear()
 
 TABLES = [
+    "TeamInvite",
     "RateLimitBucket",
     "ExternalBusy",
     "CalendarConnection",

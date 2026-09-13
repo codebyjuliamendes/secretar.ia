@@ -249,3 +249,19 @@ landing, do cadastro, do painel e do admin; o painel admin mostra "no plano grat
 de IA/mês, 100 pacientes, 2 membros, só texto, sem base de conhecimento) até o admin mudar o plano — ou
 suspendê-la. Menos estados e menos código temporal (nenhum job de expiração). Se um dia quisermos limitar o
 FREE no tempo, a alavanca é `status=SUSPENDED` pelo admin, não um trial novo.
+
+## ADR-017 — Convite de equipe com aceite pelo link (ninguém entra numa clínica sem consentir)
+
+**Contexto.** O convite criava a membership na hora: para e-mail já cadastrado, o OWNER adicionava a pessoa à
+sua clínica sem ela saber e ainda recebia nome real e status de verificação (enumeração de contas); para
+e-mail novo, criava um usuário com senha temporária e mandava um link de reset.
+**Decisão.** `TeamInvite` (e-mail, nome, papel, token de uso único com hash, 7 dias) e a membership só é criada
+em `POST /api/auth/invites/accept`. Quem já tem conta precisa estar logado com aquele e-mail (403
+`invite_login_required` caso contrário); quem não tem cria a senha na tela `/invite` e nasce com e-mail
+verificado (o link chegou nele). A resposta ao convite é o convite, nunca dados do usuário. Convite repetido
+para o mesmo e-mail substitui o anterior; reenviar troca o token; cancelar apaga; expirado responde 410. O
+limite de membros do plano conta membros + convites pendentes. A tela Equipe lista convites pendentes com
+reenviar/cancelar. O BFF trata o aceite como rota de autenticação (tokens viram cookies).
+**Consequências.** Fecha o vazamento e a adição sem consentimento; um passo a mais para quem aceita (clicar
+no link). Migration cria a tabela; o fluxo antigo por `reset-password?welcome=1` deixa de existir.
+
