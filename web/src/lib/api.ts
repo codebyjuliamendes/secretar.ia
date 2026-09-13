@@ -79,6 +79,17 @@ export const api = {
   delete: <T = void>(path: string) => request<T>("DELETE", path),
 };
 
+/** Consulta silenciosa: devolve null em 401/erro, sem redirecionar para o login (ex.: "estou logado?"). */
+export async function probe<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, { credentials: "same-origin", cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     // 422: diz qual campo falhou em vez de um "Dados inválidos" genérico.

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { Alert, Button, Field, Input, Skeleton } from "@/components/ui/primitives";
-import { ApiError, api, errorMessage } from "@/lib/api";
+import { ApiError, api, errorMessage, probe } from "@/lib/api";
 import { ROLE_LABEL } from "@/lib/format";
 import type { InviteInfo, Me } from "@/lib/types";
 
@@ -32,12 +32,8 @@ function InviteForm() {
       } catch (err) {
         if (alive) setError(errorMessage(err));
       }
-      try {
-        const m = await api.get<Me>("auth/me");
-        if (alive) setMe(m);
-      } catch {
-        if (alive) setMe(null);
-      }
+      const m = await probe<Me>("auth/me"); // sem redirecionar para /login quando não há sessão
+      if (alive) setMe(m);
     })();
     return () => {
       alive = false;
