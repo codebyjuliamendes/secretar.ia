@@ -171,6 +171,32 @@ def build_whatsapp_provider(settings: Settings) -> WhatsAppProvider:
     return ConsoleWhatsAppProvider()
 
 
+PHONE_JID_SUFFIXES = ("@s.whatsapp.net", "@c.us")
+
+
+def resolve_remote_jid(key: dict, data: dict) -> str | None:
+    """JID com telefone real. Contatos com privacidade LID chegam como `<id>@lid`, que NÃO é um número;
+    a Evolution costuma trazer o telefone em `key.remoteJidAlt`/`key.senderPn`/`data.senderPn`."""
+    remote_jid = str(key.get("remoteJid") or "")
+    if remote_jid.endswith(PHONE_JID_SUFFIXES):
+        return remote_jid
+    for candidate in (key.get("remoteJidAlt"), key.get("senderPn"), data.get("senderPn"), data.get("remoteJidAlt")):
+        if isinstance(candidate, str) and candidate.endswith(PHONE_JID_SUFFIXES):
+            return candidate
+    return None
+
+
+def fallback_message_id(data: dict, remote_jid: str) -> str:
+    """Sem `key.id`: um id derivado de timestamp+conteúdo, nunca constante por contato (senão a primeira
+    mensagem sem id bloquearia todas as seguintes como duplicadas)."""
+    import hashlib
+    import json
+
+    stamp = str(data.get("messageTimestamp") or "")
+    digest = hashlib.sha256(json.dumps(data.get("message") or {}, sort_keys=True, default=str).encode()).hexdigest()
+    return f"noid:{remote_jid}:{stamp}:{digest[:16]}"
+
+
 def parse_evolution_message(payload: dict) -> dict | None:
     """Normaliza o evento MESSAGES_UPSERT da Evolution API. Retorna None para eventos ignoráveis."""
     event = str(payload.get("event") or "").lower().replace("_", ".")
@@ -179,16 +205,21 @@ def parse_evolution_message(payload: dict) -> dict | None:
     data = payload.get("data") or {}
     if isinstance(data, list):
         data = data[0] if data else {}
-    key = data.get("key") or {}
-    if key.get("fromMe"):
+    if not isinstance(data, dict):
         return None
-    remote_jid = str(key.get("remoteJid") or "")
-    if not remote_jid or remote_jid.endswith("@g.us"):  # ignora grupos
+    key = data.get("key") or {}
+    if not isinstance(key, dict) or key.get("fromMe"):
+        return None
+    remote_jid = resolve_remote_jid(key, data)
+    if remote_jid is None:  # grupo, newsletter, LID sem telefone conhecido...
         return None
     message = data.get("message") or {}
-    text = message.get("conversation") or (message.get("extendedTextMessage") or {}).get("text") or ""
+    if not isinstance(message, dict):
+        message = {}
+    ext = message.get("extendedTextMessage")
+    text = message.get("conversation") or (ext.get("text") if isinstance(ext, dict) else None) or ""
     base = {
-        "message_id": str(key.get("id") or ""),
+        "message_id": str(key.get("id") or "") or fallback_message_id(data, remote_jid),
         "remote_jid": remote_jid,
         "push_name": data.get("pushName"),
         "instance": payload.get("instance"),

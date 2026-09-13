@@ -12,7 +12,7 @@ def verify_hub_signature(body: bytes, header_value: str | None, secret: str) -> 
     if not header_value or not header_value.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(header_value[len("sha256=") :], expected)
+    return hmac.compare_digest(header_value[len("sha256=") :].encode("utf-8"), expected.encode("ascii"))
 
 
 def sign_hub(body: bytes, secret: str) -> str:
@@ -32,7 +32,7 @@ def verify_stripe_signature(body: bytes, header_value: str | None, secret: str, 
     signed = f"{ts}.".encode() + body
     expected = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
     candidates = [v.split("=", 1)[1] for v in header_value.split(",") if v.startswith("v1=")]
-    return any(hmac.compare_digest(c, expected) for c in candidates)
+    return any(hmac.compare_digest(c.encode("utf-8"), expected.encode("ascii")) for c in candidates)
 
 
 def sign_stripe(body: bytes, secret: str, ts: int | None = None) -> str:

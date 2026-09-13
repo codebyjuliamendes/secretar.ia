@@ -25,9 +25,17 @@ async def start_connection(settings: Settings, tenant, *, actor_user_id: str, ip
     instance = tenant.whatsappInstance or instance_name_for(tenant)
     try:
         if tenant.whatsappInstance:
-            info = await provider.connection_state(instance)
+            try:
+                info = await provider.connection_state(instance)
+            except IntegrationUnavailableError:
+                # Instância apagada na Evolution mas ainda registrada aqui: recria com o mesmo nome.
+                info = await provider.create_instance(instance, _webhook_url(settings))
         else:
-            info = await provider.create_instance(instance, _webhook_url(settings))
+            try:
+                info = await provider.create_instance(instance, _webhook_url(settings))
+            except IntegrationUnavailableError:
+                # Nome já existe na Evolution (tentativa anterior gravou lá e não aqui): reaproveita.
+                info = await provider.connection_state(instance)
     except (WhatsAppRateLimited, WhatsAppTransientError) as exc:
         raise IntegrationUnavailableError("WhatsApp indisponível no momento. Tente novamente em instantes.") from exc
     await db.tenant.update(

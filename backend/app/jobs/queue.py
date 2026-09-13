@@ -154,7 +154,11 @@ async def worker_loop(stop: asyncio.Event) -> None:
                 last_recovery = datetime.now(UTC)
 
             await sem.acquire()
-            job = await claim_next_job()
+            try:
+                job = await claim_next_job()
+            except BaseException:
+                sem.release()  # falha no claim (ex.: banco fora) não pode consumir a concorrência para sempre
+                raise
             if job is None:
                 sem.release()
                 try:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -104,6 +104,6 @@ async def retry_job(job_id: str):
         raise AppError("Job não encontrado.", code="not_found", status_code=404)
     updated = await db.job.update(
         where={"id": job_id},
-        data={"status": "PENDING", "retries": 0, "runAt": datetime.now(tz=None), "error": None},
+        data={"status": "PENDING", "retries": 0, "runAt": datetime.now(UTC), "error": None},
     )
     return {"id": updated.id, "status": str(updated.status)}

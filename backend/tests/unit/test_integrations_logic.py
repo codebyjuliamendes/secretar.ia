@@ -199,3 +199,64 @@ def test_stripe_flatten_form_nested_and_lists():
         "line_items[0][quantity]": "1",
         "subscription_data[metadata][tenantId]": "t1",
     }
+
+
+def test_parse_evolution_resolves_lid_and_never_uses_constant_message_id():
+    base = {"event": "messages.upsert", "instance": "x"}
+    # Contato com privacidade LID: o telefone vem em remoteJidAlt/senderPn.
+    lid = parse_evolution_message(
+        {
+            **base,
+            "data": {
+                "key": {"remoteJid": "236395184570386@lid", "remoteJidAlt": "5581999998888@s.whatsapp.net", "id": "L1"},
+                "message": {"conversation": "oi"},
+            },
+        }
+    )
+    assert lid["remote_jid"] == "5581999998888@s.whatsapp.net" and lid["message_id"] == "L1"
+    assert (
+        parse_evolution_message(
+            {
+                **base,
+                "data": {"key": {"remoteJid": "236395184570386@lid", "id": "L2"}, "message": {"conversation": "oi"}},
+            }
+        )
+        is None
+    )  # LID sem telefone conhecido: ignorado (não vira "paciente" com número falso)
+    assert (
+        parse_evolution_message(
+            {
+                **base,
+                "data": {"key": {"remoteJid": "1234567890@newsletter", "id": "N"}, "message": {"conversation": "x"}},
+            }
+        )
+        is None
+    )
+    # Sem key.id: id derivado de timestamp + conteúdo, diferente por mensagem.
+    a = parse_evolution_message(
+        {
+            **base,
+            "data": {"key": {"remoteJid": "1@s.whatsapp.net"}, "messageTimestamp": 1, "message": {"conversation": "a"}},
+        }
+    )
+    b = parse_evolution_message(
+        {
+            **base,
+            "data": {"key": {"remoteJid": "1@s.whatsapp.net"}, "messageTimestamp": 2, "message": {"conversation": "b"}},
+        }
+    )
+    assert a["message_id"].startswith("noid:") and a["message_id"] != b["message_id"]
+    # Payload malformado não estoura.
+    assert parse_evolution_message({**base, "data": ["lixo"]}) is None
+    assert parse_evolution_message({**base, "data": {"key": "lixo"}}) is None
+    weird = parse_evolution_message(
+        {**base, "data": {"key": {"remoteJid": "1@s.whatsapp.net", "id": "z"}, "message": "x"}}
+    )
+    assert weird["unsupported"]
+
+
+def test_signatures_tolerate_non_ascii_headers():
+    from app.security.signatures import verify_hub_signature, verify_stripe_signature
+
+    assert verify_hub_signature(b"{}", "sha256=é", "s") is False
+    assert verify_stripe_signature(b"{}", "t=1,v1=é", "s") is False

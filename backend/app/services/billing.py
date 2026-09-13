@@ -60,54 +60,99 @@ async def _find_tenant(info: dict[str, Any]):
     return None
 
 
+# Eventos que podem TROCAR a assinatura corrente do tenant. Os demais só se aplicam à assinatura atual:
+# o Stripe não garante ordem, e um `customer.subscription.deleted` da assinatura antiga não pode cancelar a nova.
+SUBSCRIPTION_SWITCH_EVENTS = ("checkout.session.completed", "customer.subscription.created")
+# status da assinatura no Stripe → status do tenant (None = não mexer)
+SUBSCRIPTION_STATUS_MAP = {
+    "active": "ACTIVE",
+    "trialing": "ACTIVE",
+    "past_due": "PAST_DUE",
+    "unpaid": "PAST_DUE",
+    "canceled": "CANCELED",
+    "incomplete_expired": "CANCELED",
+    "incomplete": None,  # cartão recusado no checkout: nada muda até pagar
+    "paused": None,
+}
+
+
+def _decide(etype: str, obj: dict[str, Any]) -> str | None:
+    # Novo status do tenant para o evento, ou None para não alterar o status.
+    if etype == "checkout.session.completed":
+        # Boleto/Pix pendente chega com payment_status=unpaid: a assinatura nasce, mas só ativa ao pagar.
+        return "ACTIVE" if obj.get("payment_status") in (None, "paid", "no_payment_required") else None
+    if etype in ("invoice.payment_succeeded", "invoice.paid"):
+        return "ACTIVE"
+    if etype == "invoice.payment_failed":
+        return "PAST_DUE"
+    if etype == "customer.subscription.deleted":
+        return "CANCELED"
+    if etype in ("customer.subscription.created", "customer.subscription.updated"):
+        return SUBSCRIPTION_STATUS_MAP.get(str(obj.get("status") or ""), "ACTIVE")
+    return None
+
+
+HANDLED_EVENTS = (
+    "checkout.session.completed",
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+    "invoice.payment_succeeded",
+    "invoice.paid",
+    "invoice.payment_failed",
+)
+
+
 async def process_event(payload: dict[str, Any]) -> dict[str, Any]:
     info = _extract(payload)
-    event_id = info["event_id"]
-    if not event_id or not info["type"]:
+    event_id, etype = info["event_id"], info["type"]
+    if not event_id or not etype:
         return {"received": True, "handled": False, "reason": "missing_event_id_or_type"}
-
-    # Idempotência por event id do provedor.
-    try:
-        await db.webhookevent.create(data={"id": f"stripe:{event_id}", "provider": "stripe"})
-    except UniqueViolationError:
+    if etype not in HANDLED_EVENTS:
+        return {"received": True, "handled": False, "reason": "ignored_event_type"}
+    if await db.webhookevent.find_unique(where={"id": f"stripe:{event_id}"}):
         return {"received": True, "handled": False, "reason": "duplicate"}
 
     tenant = await _find_tenant(info)
     if tenant is None:
-        log.warning("billing_tenant_not_found", event_type=info["type"], subscription_id=info["subscription_id"])
+        log.warning("billing_tenant_not_found", event_type=etype, subscription_id=info["subscription_id"])
         return {"received": True, "handled": False, "reason": "tenant_not_found"}
 
-    etype = info["type"]
+    obj = (payload.get("data") or {}).get("object") or {}
+    sub_id = info["subscription_id"]
+    if sub_id and tenant.subscriptionId and tenant.subscriptionId != sub_id and etype not in SUBSCRIPTION_SWITCH_EVENTS:
+        log.info("billing_stale_subscription_event", event_type=etype, subscription_id=sub_id)
+        await _mark_processed(event_id)
+        return {"received": True, "handled": False, "reason": "stale_subscription"}
+
     data: dict[str, Any] = {}
-    if info["subscription_id"] and tenant.subscriptionId != info["subscription_id"]:
-        data["subscriptionId"] = info["subscription_id"]
+    if sub_id and tenant.subscriptionId != sub_id:
+        data["subscriptionId"] = sub_id
     if info["customer_id"] and tenant.customerId != info["customer_id"]:
         data["customerId"] = info["customer_id"]
+    new_status = _decide(etype, obj)
+    if new_status:
+        data["status"] = new_status
+    if info["plan"] and etype not in ("invoice.payment_failed", "customer.subscription.deleted"):
+        data["plan"] = info["plan"].value
 
-    if etype in (
-        "checkout.session.completed",
-        "customer.subscription.created",
-        "invoice.payment_succeeded",
-        "invoice.paid",
-        "customer.subscription.updated",
-    ):
-        obj_status = ((payload.get("data") or {}).get("object") or {}).get("status")
-        if etype == "customer.subscription.updated" and obj_status in ("past_due", "unpaid"):
-            data["status"] = "PAST_DUE"
-        elif etype == "customer.subscription.updated" and obj_status == "canceled":
-            data["status"] = "CANCELED"
-        else:
-            data["status"] = "ACTIVE"
-        if info["plan"]:
-            data["plan"] = info["plan"].value
-    elif etype == "invoice.payment_failed":
-        data["status"] = "PAST_DUE"
-    elif etype == "customer.subscription.deleted":
-        data["status"] = "CANCELED"
-    else:
-        return {"received": True, "handled": False, "reason": "ignored_event_type"}
+    if not data:
+        await _mark_processed(event_id)
+        return {"received": True, "handled": False, "reason": "no_change"}
 
-    updated = await db.tenant.update(where={"id": tenant.id}, data=data)
+    # Idempotência gravada na MESMA transação da mudança: se a atualização falhar, o Stripe reenvia e o
+    # evento é reaplicado em vez de ficar marcado como processado sem efeito.
+    try:
+        async with db.tx() as tx:
+            await tx.webhookevent.create(data={"id": f"stripe:{event_id}", "provider": "stripe"})
+            updated = await tx.tenant.update(where={"id": tenant.id}, data=data)
+    except UniqueViolationError as exc:
+        if "WebhookEvent" in str(exc) or "PRIMARY" in str(exc).upper():
+            return {"received": True, "handled": False, "reason": "duplicate"}
+        # subscriptionId já pertence a outro tenant: evento inconsistente, não vale retentar.
+        log.error("billing_subscription_conflict", event_type=etype, subscription_id=sub_id)
+        await _mark_processed(event_id)
+        return {"received": True, "handled": False, "reason": "subscription_conflict"}
     await audit.record(
         action=f"billing.{etype}",
         resource_type="tenant",
@@ -140,6 +185,13 @@ async def process_event(payload: dict[str, Any]) -> dict[str, Any]:
         "status": str(updated.status),
         "processedAt": datetime.now(UTC).isoformat(),
     }
+
+
+async def _mark_processed(event_id: str) -> None:
+    try:
+        await db.webhookevent.create(data={"id": f"stripe:{event_id}", "provider": "stripe"})
+    except UniqueViolationError:
+        pass
 
 
 # ------------------------------ Checkout e portal ------------------------------
