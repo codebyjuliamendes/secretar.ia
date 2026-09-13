@@ -34,9 +34,19 @@ export interface TenantSummary {
   status: TenantStatus;
   plan: Plan;
   timezone: string;
+  niche: NicheInfo;
   createdAt: string;
   role: TenantRole;
   unreadNotifications: number;
+}
+
+/** Vocabulário do nicho escolhido pelo admin (paciente/cliente/tutor…). */
+export interface NicheInfo {
+  key: string;
+  label: string;
+  person: string;
+  people: string;
+  appointment: string;
 }
 
 export interface PlanLimits {
@@ -291,6 +301,7 @@ export interface AdminTenant {
   whatsapp: string;
   status: TenantStatus;
   plan: Plan;
+  niche: string;
   whatsappConnected: boolean;
   createdAt: string;
   appointmentCount: number;

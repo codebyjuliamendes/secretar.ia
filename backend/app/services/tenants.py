@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db import db
+from app.domain.niches import NICHES, niche_view
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
@@ -22,6 +23,7 @@ def tenant_public(t) -> dict:
         "status": str(t.status),
         "plan": str(t.plan),
         "timezone": t.timezone,
+        "niche": niche_view(getattr(t, "niche", None)),
         "createdAt": t.createdAt.isoformat(),
     }
 
@@ -91,7 +93,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
     total = await db.tenant.count(where=where)
     rows = await db.query_raw(
         """
-        SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan,
+        SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
                t."whatsappConnected", t."createdAt",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
                COALESCE(m.cnt, 0) AS "memberCount"
@@ -118,6 +120,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "whatsapp": r["whatsapp"],
                 "status": r["status"],
                 "plan": r["plan"],
+                "niche": r.get("niche") or "clinica",
                 "whatsappConnected": bool(r["whatsappConnected"]),
                 "createdAt": _iso(r.get("createdAt")),
                 "appointmentCount": int(r["appointmentCount"] or 0),
@@ -181,6 +184,7 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
                 "businessHours": data.get("businessHours"),
                 "plan": data.get("plan") or "BASIC",
                 "tone": data.get("tone") or "acolhedor",
+                "niche": data.get("niche") or "clinica",
                 "status": data.get("status") or "ACTIVE",
             }
         )
@@ -205,6 +209,8 @@ async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_use
     payload = {k: v for k, v in data.items() if v is not None}
     if "status" in payload and payload["status"] not in ALLOWED_TENANT_STATUSES:
         raise ConflictError("Status inválido.", code="invalid_status")
+    if "niche" in payload and payload["niche"] not in NICHES:
+        raise ConflictError("Nicho inválido.", code="invalid_niche")
     if "plan" in payload and "status" not in payload and str(tenant.status) == "PENDING":
         payload["status"] = "ACTIVE"  # liberar o plano é o gesto de ativação
     updated = await db.tenant.update(where={"id": tenant_id}, data=payload)

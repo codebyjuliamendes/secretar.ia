@@ -29,12 +29,21 @@ class TenantCreateIn(BaseModel):
     businessHours: str | None = Field(default=None, max_length=300)
     plan: PlanLiteral = "BASIC"
     status: StatusLiteral = "ACTIVE"
+    niche: str = Field(default="clinica", max_length=40)
 
 
 class TenantUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     plan: PlanLiteral | None = None
     status: StatusLiteral | None = None
+    niche: str | None = Field(default=None, max_length=40)
+
+
+@router.get("/niches")
+async def list_niches():
+    from app.domain.niches import niche_options
+
+    return {"items": niche_options()}
 
 
 @router.get("/overview")

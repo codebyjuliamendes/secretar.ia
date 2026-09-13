@@ -145,6 +145,7 @@ model Tenant {
   whatsappConnected Boolean      @default(false)
   prompt            String       @default("") // instruções extras opcionais; a persona é gerada pelo tom
   tone              String       @default("acolhedor") // acolhedor | objetivo | formal
+  niche             String       @default("clinica") // chave em domain/niches.py; escolhido pelo admin ao liberar
   prices            String?
   businessHours     String?
   timezone          String       @default("America/Sao_Paulo")

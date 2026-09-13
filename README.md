@@ -176,7 +176,8 @@ status/quota), Evolution (token + instância), Stripe (assinatura, idempotência
 falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de agenda/pacientes, limites de plano e
 planos pagos (Essencial R$ 750, Profissional R$ 1.000, Premium R$ 1.500, Enterprise a partir de R$ 2.000; todos
 com áudio/imagem e base de conhecimento, variando volume), clínica nova PENDING até o admin liberar o plano, e
-persona da assistente gerada pelo tom (sem prompt para o cliente escrever).
+persona da assistente gerada pelo tom (sem prompt para o cliente escrever) e nicho do negócio escolhido pelo admin
+(clínica, odontologia, psicologia, salão, pet, advocacia… — vocabulário e cuidados do ramo, mesmos preços).
 
 ## Segurança e multi-tenancy
 

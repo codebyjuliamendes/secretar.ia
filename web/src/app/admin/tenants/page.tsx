@@ -11,6 +11,19 @@ import { useDebounced, useQuery } from "@/lib/use-query";
 
 const PLANS: Plan[] = ["BASIC", "PRO", "PREMIUM", "ENTERPRISE"];
 const STATUSES: TenantStatus[] = ["PENDING", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"];
+const NICHES: { key: string; label: string }[] = [
+  { key: "clinica", label: "Clínica de saúde/estética" },
+  { key: "odontologia", label: "Odontologia" },
+  { key: "psicologia", label: "Psicologia/terapia" },
+  { key: "fisioterapia", label: "Fisioterapia/pilates" },
+  { key: "salao", label: "Salão de beleza" },
+  { key: "barbearia", label: "Barbearia" },
+  { key: "pet", label: "Pet shop / veterinária" },
+  { key: "advocacia", label: "Escritório de advocacia" },
+  { key: "contabilidade", label: "Contabilidade/consultoria" },
+  { key: "academia", label: "Academia / personal" },
+  { key: "outro", label: "Outro negócio" },
+];
 const LIMIT = 25;
 
 export default function AdminTenantsPage() {
@@ -25,7 +38,7 @@ export default function AdminTenantsPage() {
   const updating = useRef<Set<string>>(new Set());
   const [confirmStatus, setConfirmStatus] = useState<{ tenant: AdminTenant; status: TenantStatus } | null>(null);
 
-  async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status">>) {
+  async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status" | "niche">>) {
     if (updating.current.has(t.id)) return;
     updating.current.add(t.id);
     try {
@@ -58,7 +71,7 @@ export default function AdminTenantsPage() {
       ) : (
         <>
           <Table>
-            <thead><tr><Th>Clínica</Th><Th>Status</Th><Th>Plano</Th><Th>Pacientes</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
+            <thead><tr><Th>Negócio</Th><Th>Status</Th><Th>Plano</Th><Th>Nicho</Th><Th>Contatos</Th><Th>Agend.</Th><Th>Equipe</Th><Th>WhatsApp</Th><Th>Criada</Th></tr></thead>
             <tbody>
               {data.items.map((t) => (
                 <tr key={t.id}>
@@ -71,6 +84,11 @@ export default function AdminTenantsPage() {
                   <Td>
                     <Select aria-label={`Plano de ${t.name}`} value={t.plan} onChange={(e) => update(t, { plan: e.target.value as Plan })} className="w-36">
                       {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}
+                    </Select>
+                  </Td>
+                  <Td>
+                    <Select aria-label={`Nicho de ${t.name}`} value={t.niche} onChange={(e) => update(t, { niche: e.target.value })} className="w-52">
+                      {NICHES.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
                     </Select>
                   </Td>
                   <Td>{t.patientCount}</Td><Td>{t.appointmentCount}</Td><Td>{t.memberCount}</Td>
@@ -103,7 +121,7 @@ export default function AdminTenantsPage() {
 
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "BASIC" as Plan, status: "ACTIVE" as TenantStatus });
+  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "BASIC" as Plan, status: "ACTIVE" as TenantStatus, niche: "clinica" });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -128,6 +146,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nome" htmlFor="t-name" required><Input id="t-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           <Field label="WhatsApp" htmlFor="t-wa" required><Input id="t-wa" required value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} /></Field>
+          <Field label="Nicho" htmlFor="t-niche"><Select id="t-niche" value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })}>{NICHES.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}</Select></Field>
           <Field label="Plano" htmlFor="t-plan"><Select id="t-plan" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value as Plan })}>{PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}</Select></Field>
           <Field label="Status" htmlFor="t-status"><Select id="t-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as TenantStatus })}>{STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</Select></Field>
         </div>

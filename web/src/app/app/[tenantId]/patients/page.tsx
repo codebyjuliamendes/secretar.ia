@@ -49,7 +49,7 @@ export default function PatientsPage() {
 
   return (
     <>
-      <PageHeader title="Pacientes" description="Todo contato pelo WhatsApp vira um paciente automaticamente." action={<Button onClick={() => setModal(true)}>Novo paciente</Button>} />
+      <PageHeader title={tenant.niche?.people ?? "Pacientes"} description={`Todo contato pelo WhatsApp vira um ${tenant.niche?.person ?? "paciente"} automaticamente.`} action={<Button onClick={() => setModal(true)}>Novo {tenant.niche?.person ?? "paciente"}</Button>} />
       <Input aria-label="Buscar paciente" placeholder="Buscar por nome ou telefone" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} className="mb-4 sm:max-w-xs" />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />

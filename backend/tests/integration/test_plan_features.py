@@ -134,3 +134,42 @@ async def test_tone_drives_the_generated_persona(client, clean_db):
     assert "Não prometa desconto." in build_system_prompt(t, now_local=datetime.now(UTC), upcoming=[])
     bad = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"tone": "sarcástico"})
     assert bad.status_code == 422
+
+
+async def test_admin_picks_the_niche_and_the_assistant_adapts(client, clean_db):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from app.services.ai import build_system_prompt
+
+    reg = await register_user(client, active=False)
+    tid, h = reg["tenantId"], auth_headers(reg)
+    assert (await client.get(f"/api/clinic/{tid}", headers=h)).json()["niche"]["people"] == "Pacientes"
+    admin_user = await register_user(client, active=False)
+    await clean_db.user.update(where={"email": admin_user["email"]}, data={"platformRole": "SUPER_ADMIN"})
+    admin = await login(client, admin_user["email"], admin_user["password"])
+    niches = (await client.get("/api/admin/niches", headers=auth_headers(admin))).json()["items"]
+    assert {n["key"] for n in niches} >= {"clinica", "salao", "pet", "advocacia", "outro"}
+    bad = await client.patch(f"/api/admin/tenants/{tid}", headers=auth_headers(admin), json={"niche": "padaria"})
+    assert bad.status_code == 409
+    ok = await client.patch(
+        f"/api/admin/tenants/{tid}", headers=auth_headers(admin), json={"niche": "pet", "plan": "PRO"}
+    )
+    assert ok.status_code == 200 and ok.json()["niche"]["person"] == "tutor" and ok.json()["status"] == "ACTIVE"
+    assert (await client.get(f"/api/clinic/{tid}", headers=h)).json()["niche"]["people"] == "Tutores"
+    t = SimpleNamespace(
+        name="Bicho Feliz", tone="acolhedor", prompt="", niche="pet", businessHours=None, prices=None, timezone="UTC"
+    )
+    prompt = build_system_prompt(t, now_local=datetime.now(UTC), upcoming=[])
+    assert "clínica veterinária Bicho Feliz" in prompt and "tutores" in prompt and "sintomas do animal" in prompt
+    assert "diagnóstico ou orientação médica" not in prompt
+    law = SimpleNamespace(
+        name="Silva & Souza",
+        tone="formal",
+        prompt="",
+        niche="advocacia",
+        businessHours=None,
+        prices=None,
+        timezone="UTC",
+    )
+    assert "orientação jurídica" in build_system_prompt(law, now_local=datetime.now(UTC), upcoming=[])

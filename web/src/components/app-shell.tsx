@@ -56,7 +56,7 @@ export function AppShell({
     { href: base, label: "Visão geral" },
     { href: `${base}/calendar`, label: "Calendário" },
     { href: `${base}/appointments`, label: "Agenda" },
-    { href: `${base}/patients`, label: "Pacientes" },
+    { href: `${base}/patients`, label: tenant.niche?.people ?? "Pacientes" },
     { href: `${base}/inbox`, label: "Inbox", badge: tenant.unreadNotifications },
     { href: `${base}/settings`, label: "Assistente & WhatsApp", roles: ["OWNER", "MANAGER", "STAFF"] },
     { href: `${base}/team`, label: "Equipe", roles: ["OWNER", "MANAGER"] },

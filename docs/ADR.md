@@ -287,3 +287,12 @@ assistente tem de funcionar sem exigir nada dele.
 Testes ativam a clínica no `register_user` por padrão (`active=False` testa o pendente). Os números de volume
 por faixa são minha proposta e a Julia pode ajustar.
 
+**Adendo (13/set/2026) — nicho escolhido pelo admin.** A Julia decidiu atender outros negócios além de clínicas
+com os mesmos valores, e que ela escolhe o ramo na hora de liberar a conta; o cliente continua sem configurar
+nada. `Tenant.niche` (default `clinica`) escolhe um `Niche` em `domain/niches.py` (clínica, odontologia,
+psicologia, fisioterapia, salão, barbearia, pet, advocacia, contabilidade, academia, outro). O nicho muda só o
+que precisa: como a assistente se apresenta (`role`), como chama quem atende (`person`/`people`), o nome do
+compromisso e o cuidado do ramo (`guardrail`, ex.: "nunca dê orientação jurídica"). Admin escolhe pelo seletor
+na tela de clínicas (`PATCH /admin/tenants/{id}` valida contra `NICHES`, `GET /admin/niches` lista); o painel
+do cliente recebe `niche` em `/clinic/{id}` e troca rótulos ("Pacientes" → "Tutores", "Clientes", "Alunos").
+Preços e limites são iguais para todos os nichos.
