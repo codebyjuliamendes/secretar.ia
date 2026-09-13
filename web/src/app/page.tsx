@@ -1,3 +1,4 @@
+import { LegalFooter } from "@/components/legal-page";
 import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
 import { demoLink } from "@/lib/format";
@@ -97,7 +98,7 @@ export default async function Home() {
 
       <Pricing config={config} people="contatos" />
 
-      <footer className="mt-12 text-center text-xs text-muted">© {new Date().getFullYear()} Secretar.ia</footer>
+      <LegalFooter />
     </main>
   );
 }

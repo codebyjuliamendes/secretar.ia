@@ -293,6 +293,13 @@ export interface PublicConfig {
   plans: PlanLimits[];
   niches: { key: string; label: string }[];
   sales: SalesContact;
+  legal: LegalInfo;
+}
+
+export interface LegalInfo {
+  entity: string;
+  doc: string;
+  privacyEmail: string;
 }
 
 export type KnowledgeSource = "text" | "pdf" | "url" | "file";
@@ -352,6 +359,7 @@ export interface AdminTenant {
   lastReportPeriod: string | null;
   hasSubscription: boolean;
   billingCycle: string;
+  deletionRequestedAt: string | null;
   referralCode: string | null;
   referredByName: string | null;
   referralsCount: number;

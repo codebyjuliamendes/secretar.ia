@@ -158,7 +158,8 @@ type ReportResult = { period: string; emails: string[]; data: Record<string, num
 /** Tudo que a Júlia faz com uma conta além de plano/status/nicho: checklist, boas-vindas, cobrança e relatório. */
 function TenantDetailModal({ tenant, others, onClose, onChanged }: { tenant: AdminTenant | null; others: AdminTenant[]; onClose: () => void; onChanged: () => Promise<void> }) {
   const toast = useToast();
-  const [busy, setBusy] = useState<"welcome" | "billing" | "report" | null>(null);
+  const [busy, setBusy] = useState<"welcome" | "billing" | "report" | "delete" | null>(null);
+  const [confirmName, setConfirmName] = useState("");
   const [welcome, setWelcome] = useState<WelcomeResult | null>(null);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [method, setMethod] = useState("");
@@ -176,6 +177,7 @@ function TenantDetailModal({ tenant, others, onClose, onChanged }: { tenant: Adm
     setCycle(tenant.billingCycle || "MONTHLY");
     setWelcome(null);
     setReport(null);
+    setConfirmName("");
   }
   if (!tenant) return null;
 
@@ -268,6 +270,11 @@ function TenantDetailModal({ tenant, others, onClose, onChanged }: { tenant: Adm
           )}
         </section>
 
+        {tenant.deletionRequestedAt && (
+          <Alert tone="warning" title="Encerramento pedido pelo cliente">
+            Pedido em {formatDateTime(tenant.deletionRequestedAt)}. Confirme com ele, ofereça a exportação das planilhas e só então exclua.
+          </Alert>
+        )}
         <section>
           <h3 className="text-sm font-semibold">Indicação</h3>
           <p className="mt-1 text-sm text-muted">Código <span className="font-mono font-medium text-foreground">{tenant.referralCode ?? "—"}</span> · indicou {tenant.referralsCount} conta(s){tenant.referredByName ? ` · indicada por ${tenant.referredByName}` : ""}. O desconto de quem indica você registra em “Cobrança” (observação).</p>
@@ -287,6 +294,35 @@ function TenantDetailModal({ tenant, others, onClose, onChanged }: { tenant: Adm
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="secondary" onClick={sendReport} loading={busy === "report"}>Enviar relatório do mês passado</Button>
             {report && <span className="text-xs text-muted">{report.data.answered} mensagens · {report.data.appointments} agendamentos · {report.data.new_people} novos contatos</span>}
+          </div>
+        </section>
+        <section className="rounded-lg border border-danger/40 p-3">
+          <h3 className="text-sm font-semibold text-danger">Excluir definitivamente</h3>
+          <p className="mt-1 text-xs text-muted">Apaga a conta, os contatos, as conversas, a agenda e os usuários que só pertenciam a ela. Não tem volta e atende ao pedido de exclusão previsto na LGPD. Para confirmar, digite o nome exato: <span className="font-medium text-foreground">{tenant.name}</span></p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <Field label="Nome da conta" htmlFor="del-confirm"><Input id="del-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={tenant.name} /></Field>
+            <Button
+              size="sm"
+              variant="danger"
+              loading={busy === "delete"}
+              disabled={confirmName.trim() !== tenant.name}
+              onClick={async () => {
+                if (!tenant) return;
+                setBusy("delete");
+                try {
+                  await api.post(`admin/tenants/${tenant.id}/delete`, { confirm: confirmName.trim() });
+                  toast.success(`${tenant.name} foi excluída.`);
+                  onClose();
+                  await onChanged();
+                } catch (err) {
+                  toast.error(errorMessage(err));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              Excluir conta
+            </Button>
           </div>
         </section>
       </div>

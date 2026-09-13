@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LegalFooter } from "@/components/legal-page";
 import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
 import { demoLink } from "@/lib/format";
@@ -94,7 +95,7 @@ export default async function NicheLanding({ params }: { params: Promise<{ nicho
         </div>
       </section>
 
-      <footer className="mt-12 text-center text-xs text-muted">© {new Date().getFullYear()} Secretar.ia</footer>
+      <LegalFooter />
     </main>
   );
 }

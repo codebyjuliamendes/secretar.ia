@@ -74,4 +74,9 @@ async def public_config(settings: Settings = Depends(get_settings)):
         "plans": [plan_public_view(p) for p in Plan],
         "niches": niche_options(),
         "sales": sales_contact(settings),
+        "legal": {
+            "entity": settings.legal_entity,
+            "doc": settings.legal_doc,
+            "privacyEmail": settings.privacy_contact,
+        },
     }

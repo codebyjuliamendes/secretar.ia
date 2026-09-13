@@ -1,6 +1,8 @@
 # Ambiente
 .env
 .env.*
+!.env.prod.example
+!.env.example
 !.env.example
 
 # Node
@@ -17,3 +19,6 @@ backend/generated_prisma/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Backups do banco gerados no servidor
+backups/

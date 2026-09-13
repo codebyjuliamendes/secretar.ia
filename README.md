@@ -186,6 +186,9 @@ Crescimento (ADR-020): página pública de agendamento (`/agendar/{slug}`), lemb
 resposta, lista de espera, sinal por Pix, "indique e ganhe", plano anual, exportação em planilha, resumo das
 perguntas que a assistente não soube responder, saúde da carteira no admin, resposta em áudio e agendas por
 profissional (com grupo de unidades).
+Conformidade (ADR-021): páginas de Privacidade e Termos alimentadas por `LEGAL_ENTITY`/`LEGAL_DOC`/`PRIVACY_EMAIL`,
+aceite no cadastro, pedido de exclusão reconhecido no WhatsApp (LGPD), encerramento de conta pedido pelo dono e
+exclusão definitiva pelo super admin.
 
 ## Segurança e multi-tenancy
 
@@ -219,6 +222,10 @@ Configuração do webhook na Evolution: `POST {PUBLIC_API_URL}/api/webhooks/evol
 com eventos `MESSAGES_UPSERT` e `CONNECTION_UPDATE` (feito automaticamente ao criar a instância pelo painel).
 
 ## Deploy
+
+Para subir tudo em um servidor só (banco, backend, painel, WhatsApp e HTTPS), siga o roteiro de
+[docs/DEPLOY.md](docs/DEPLOY.md), que usa `docker-compose.prod.yml` e traz o checklist de véspera, o backup e o
+que fazer quando algo falha. O resto desta seção descreve o deploy em plataformas gerenciadas.
 
 Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
 

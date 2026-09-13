@@ -121,6 +121,20 @@ async def resend_report(
     return await send_report(settings, tenant, period or previous_period(), force=True)
 
 
+class TenantDeleteIn(BaseModel):
+    confirm: str = Field(min_length=1, max_length=120)  # nome exato da conta
+
+
+@router.post("/tenants/{tenant_id}/delete")
+async def delete_tenant(
+    tenant_id: str, data: TenantDeleteIn, request: Request, user: CurrentUser = Depends(require_super_admin)
+):
+    """Exclusão definitiva da conta e de tudo que depende dela. Irreversível."""
+    return await tenant_service.admin_delete_tenant(
+        tenant_id, confirm=data.confirm, actor_user_id=user.id, ip=client_ip(request)
+    )
+
+
 @router.get("/jobs")
 async def list_jobs(
     status_: Literal["PENDING", "RUNNING", "COMPLETED", "FAILED"] | None = Query(None, alias="status"),

@@ -169,6 +169,7 @@ export default function PublicBookingPage() {
                 {data.deposit && <p className="text-xs text-muted">{data.deposit}</p>}
                 {error && <Alert tone="danger">{error}</Alert>}
                 <Button className="w-full" onClick={submit} loading={busy} disabled={form.name.trim().length < 2 || form.phone.replace(/\D/g, "").length < 10}>Pedir horário</Button>
+                <p className="text-xs text-muted">Ao pedir o horário, seus dados vão para {data.name}, que confirma e atende. Veja a <Link href="/privacidade" className="text-primary hover:underline">Política de Privacidade</Link>.</p>
               </div>
             </section>
           )}

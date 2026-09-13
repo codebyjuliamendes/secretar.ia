@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { SessionProvider, useSession } from "@/components/session";
 import { Alert, Badge, Button, Card, Field, Input, PageHeader } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/modal";
 import { api, errorMessage } from "@/lib/api";
 import { ROLE_LABEL } from "@/lib/format";
 
@@ -16,6 +17,9 @@ function AccountInner() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [closing, setClosing] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [requested, setRequested] = useState<string[]>([]);
 
   async function change(e: FormEvent) {
     e.preventDefault();
@@ -82,6 +86,44 @@ function AccountInner() {
             <Button type="submit" loading={saving}>Alterar senha</Button>
           </form>
         </Card>
+        <Card title="Encerrar conta">
+          <p className="mb-3 text-sm text-muted">Antes de encerrar, exporte contatos e agendamentos em planilha pelas telas de Contatos e Agenda. O pedido vai para a nossa equipe, que confirma com você e apaga tudo: cadastro, conversas e histórico.</p>
+          <ul className="divide-y divide-border text-sm">
+            {me.memberships.filter((m) => m.role === "OWNER").map((m) => (
+              <li key={m.tenantId} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="font-medium">{m.tenant.name}</span>
+                {requested.includes(m.tenantId) ? (
+                  <Badge tone="warning">encerramento pedido</Badge>
+                ) : (
+                  <Button size="sm" variant="danger" onClick={() => { setReason(""); setClosing(m.tenantId); }}>Pedir encerramento</Button>
+                )}
+              </li>
+            ))}
+            {me.memberships.filter((m) => m.role === "OWNER").length === 0 && (
+              <li className="py-2 text-muted">Só o proprietário pode pedir o encerramento.</li>
+            )}
+          </ul>
+        </Card>
+        <ConfirmDialog
+          open={!!closing}
+          onClose={() => setClosing(null)}
+          onConfirm={async () => {
+            if (!closing) return;
+            try {
+              await api.post(`clinic/${closing}/account/deletion-request`, { reason: reason || null });
+              setRequested((r) => [...r, closing]);
+              toast.success("Pedido enviado. Nossa equipe fala com você antes de apagar qualquer coisa.");
+            } catch (err) {
+              toast.error(errorMessage(err));
+            } finally {
+              setClosing(null);
+            }
+          }}
+          danger
+          title="Pedir encerramento da conta"
+          description="Nada é apagado agora. Nossa equipe recebe o pedido, confirma com você e faz a exclusão definitiva, que não tem volta."
+          confirmLabel="Enviar pedido"
+        />
         <Card title="Sessões">
           <p className="mb-3 text-sm text-muted">Encerra o acesso em todos os dispositivos, incluindo este.</p>
           <Button variant="danger" onClick={logoutAll}>Sair de todos os dispositivos</Button>

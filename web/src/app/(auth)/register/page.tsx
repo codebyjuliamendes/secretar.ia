@@ -24,6 +24,7 @@ function RegisterForm() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accepted, setAccepted] = useState(false);
 
   const set = (k: keyof typeof initial) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
@@ -35,6 +36,7 @@ function RegisterForm() {
       errs.password = "Mínimo de 8 caracteres, combinando letras e números.";
     if (form.clinicName.trim().length < 2) errs.clinicName = "Informe o nome da clínica.";
     if (form.whatsapp.replace(/\D/g, "").length < 10) errs.whatsapp = "Informe o WhatsApp com DDD.";
+    if (!accepted) errs.accepted = "É preciso aceitar os Termos e a Política de Privacidade.";
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -80,6 +82,16 @@ function RegisterForm() {
         <Field label="Código de indicação" htmlFor="referralCode" error={fieldErrors.referralCode} hint="Opcional. Se alguém te indicou, o código dá um mês com desconto para quem indicou.">
           <Input id="referralCode" value={form.referralCode} onChange={set("referralCode")} placeholder="ABC123" className="uppercase" />
         </Field>
+        <div>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" id="accept" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5" />
+            <span>
+              Li e aceito os <Link href="/termos" className="text-primary hover:underline" target="_blank">Termos de Uso</Link> e a{" "}
+              <Link href="/privacidade" className="text-primary hover:underline" target="_blank">Política de Privacidade</Link>.
+            </span>
+          </label>
+          {fieldErrors.accepted && <p className="mt-1 text-xs text-danger" role="alert">{fieldErrors.accepted}</p>}
+        </div>
         {error && <Alert tone="danger">{error}</Alert>}
         <Button type="submit" className="w-full" loading={loading}>
           Criar conta

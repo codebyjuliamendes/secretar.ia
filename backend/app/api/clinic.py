@@ -545,6 +545,23 @@ class QuestionsResolveIn(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=200)
 
 
+class DeletionRequestIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/account/deletion-request")
+async def request_account_deletion(
+    data: DeletionRequestIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.BILLING_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Pedido de encerramento pelo dono (LGPD). Nada é apagado aqui: a equipe confirma e executa."""
+    return await tenant_service.request_deletion(
+        settings, ctx.tenant_id, reason=data.reason, actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
 @router.get("/questions")
 async def list_questions(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
     """Perguntas que a assistente não soube responder (últimos 30 dias), agrupadas."""

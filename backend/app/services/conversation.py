@@ -38,6 +38,26 @@ OPT_OUT_PHRASES = (
     "remover meu numero",
     "nao quero mais mensagens",
 )
+DELETION_PHRASES = (
+    "apagar meus dados",
+    "apague meus dados",
+    "excluir meus dados",
+    "exclua meus dados",
+    "deletar meus dados",
+    "delete meus dados",
+    "remover meus dados",
+    "remova meus dados",
+    "quero ser esquecido",
+    "direito ao esquecimento",
+    "lgpd",
+)
+
+DELETION_REPLY = (
+    "Entendido. Encaminhei seu pedido de exclusão de dados para a equipe responsável, que cuida disso "
+    "diretamente. Enquanto isso, parei de te enviar mensagens de campanha. Se precisar, fale com a equipe "
+    "por aqui."
+)
+
 OPT_OUT_REPLY = (
     "Entendido! Você não vai mais receber nossos lembretes de retorno por aqui. Se precisar de algo, é só chamar."
 )
@@ -48,6 +68,14 @@ def wants_opt_out(text: str) -> bool:
 
     t = normalize(text)
     return any(p in t for p in OPT_OUT_PHRASES)
+
+
+def wants_data_deletion(text: str) -> bool:
+    """Pedido de exclusão de dados (LGPD). Quem decide é o negócio (controlador); nós avisamos e registramos."""
+    from app.domain.intents import normalize
+
+    t = normalize(text)
+    return any(p in t for p in DELETION_PHRASES)
 
 
 @dataclass
@@ -380,6 +408,27 @@ async def _process(
         await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
         log.info("inbound_media_unreadable", kind=media.kind, source=source, error=media_error)
         return InboundResult(status="processed", intent=Intent.INFO.value, reply=reply, degraded=True)
+
+    if wants_data_deletion(text):
+        # LGPD: o titular pede ao negócio, que é o controlador. Registramos, avisamos e paramos campanhas.
+        await db.patient.update(where={"id": patient.id}, data={"marketingOptOut": True})
+        await _save_exchange(tenant.id, phone, text, DELETION_REPLY)
+        await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": DELETION_REPLY})
+        await notifications.notify(
+            tenant.id,
+            type_="SYSTEM",
+            title=f"Pedido de exclusão de dados (LGPD): {patient.name or phone}",
+            body=(
+                'A pessoa pediu a exclusão dos dados dela ("'
+                + text[:150]
+                + '"). A LGPD dá até 15 dias para responder. Para atender, abra a ficha em Contatos e use '
+                "Remover: o cadastro, as conversas e o histórico de agendamentos dela saem do sistema."
+            ),
+            phone=phone,
+            dedupe_minutes=24 * 60,
+        )
+        log.info("inbound_data_deletion_request", source=source)
+        return InboundResult(status="processed", intent=Intent.INFO.value, reply=DELETION_REPLY, degraded=False)
 
     if wants_opt_out(text):
         # LGPD: pedido explícito para não receber campanhas vale na hora, sem passar pela IA.

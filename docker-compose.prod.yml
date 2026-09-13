@@ -1,0 +1,93 @@
+# Produção em um único servidor (VPS): banco, backend, painel, conexão com o WhatsApp e HTTPS automático.
+# Uso: copie .env.prod.example para .env, preencha, e rode `docker compose -f docker-compose.prod.yml up -d`.
+# Passo a passo completo em docs/DEPLOY.md.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-secretaria}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups # destino do pg_dump (deploy/backup.sh)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-secretaria}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Sem `ports`: o banco só é alcançável pela rede interna do compose.
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: [./backend/.env]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-secretaria}?schema=public
+      FRONTEND_URL: https://${APP_DOMAIN}
+      PUBLIC_API_URL: https://${API_DOMAIN}
+      CORS_ORIGINS: https://${APP_DOMAIN}
+      EVOLUTION_API_URL: http://evolution:8080
+      RUN_MIGRATIONS_ON_START: "true" # única réplica: aplica as migrations ao subir
+      RUN_BACKGROUND_JOBS: "true" # fila e rotina diária moram aqui
+    expose: ["8000"]
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      PORT: "4000"
+      API_URL: http://backend:8000 # servidor a servidor, sem sair para a internet
+      COOKIE_SECURE: "true"
+      PUBLIC_WEB_URL: https://${APP_DOMAIN} # usado no sitemap
+    expose: ["4000"]
+
+  # Conexão com o WhatsApp. Mantém a sessão do QR Code viva: precisa ficar ligado sem parar.
+  # Confira a tag atual em github.com/EvolutionAPI/evolution-api/releases e as variáveis na documentação
+  # oficial antes de subir; elas mudam entre versões maiores.
+  evolution:
+    image: atendai/evolution-api:v2.1.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_URL: https://${EVOLUTION_DOMAIN}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      DEL_INSTANCE: "false"
+    volumes:
+      - evolution_data:/evolution/instances
+    expose: ["8080"]
+
+  # HTTPS automático (Let's Encrypt). Aponte os três domínios para o IP do servidor antes de subir.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [web, backend, evolution]
+    ports: ["80:80", "443:443"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      EVOLUTION_DOMAIN: ${EVOLUTION_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  evolution_data:
+  caddy_data:
+  caddy_config:

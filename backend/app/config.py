@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"  # responder áudio com áudio (experimental)
     tts_voice: str = "Kore"  # voz fixa por plataforma; simples e previsível
+
+    # Identificação da operadora nas páginas de Privacidade e Termos. Vazio = a página omite a linha.
+    legal_entity: str = ""  # razão social
+    legal_doc: str = ""  # CNPJ
+    privacy_email: str = ""  # canal do encarregado (LGPD); vazio cai em ALERTS_EMAIL/SUPER_ADMIN_EMAIL
+
+    @property
+    def privacy_contact(self) -> str:
+        return self.privacy_email or self.alerts_email or self.super_admin_email
+
     ai_timeout_seconds: float = 20.0
     ai_max_output_tokens: int = 512
 

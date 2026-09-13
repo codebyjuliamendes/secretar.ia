@@ -96,6 +96,42 @@ async def update_settings(tenant_id: str, data: dict[str, Any], *, actor_user_id
     return tenant_settings_view(updated)
 
 
+async def request_deletion(settings, tenant_id: str, *, reason: str | None, actor_user_id: str, ip: str | None) -> dict:
+    """Dono pede o encerramento da conta. Não apaga nada: registra, avisa a equipe e aparece no admin."""
+    from datetime import UTC, datetime
+
+    from app.jobs.queue import enqueue
+    from app.jobs.tasks import SEND_EMAIL
+
+    tenant = await get_tenant_or_404(tenant_id)
+    now = datetime.now(UTC)
+    await db.tenant.update(where={"id": tenant_id}, data={"deletionRequestedAt": now})
+    await audit.record(
+        action="tenant.deletion_requested",
+        resource_type="tenant",
+        resource_id=tenant_id,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        metadata={"reason": (reason or "")[:300]},
+        ip=ip,
+    )
+    if settings.alerts_to:
+        await enqueue(
+            SEND_EMAIL,
+            {
+                "to": settings.alerts_to,
+                "subject": f"[Secretar.ia] {tenant.name} pediu o encerramento da conta",
+                "text": (
+                    f"{tenant.name} ({tenant.whatsapp}) pediu para encerrar a conta"
+                    + (f'.\nMotivo: "{reason.strip()[:300]}"' if reason and reason.strip() else ".")
+                    + "\n\nAntes de excluir, ofereça a exportação das planilhas de contatos e agendamentos. "
+                    + f"A exclusão definitiva é feita em {settings.frontend_url.rstrip('/')}/admin/tenants."
+                ),
+            },
+        )
+    return {"requestedAt": now.isoformat()}
+
+
 # ----------------------------- SUPER ADMIN -----------------------------
 
 
@@ -114,7 +150,8 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
                t."whatsappConnected", t."createdAt", t."hardLimit", t."paidUntil", t."paymentMethod",
                t."billingNote", t."welcomeSentAt", t."lastReportPeriod", t."subscriptionId", t."billingCycle",
-               t."referralCode", t."parentTenantId", ref.name AS "referredByName", grp.name AS "groupName",
+               t."referralCode", t."parentTenantId", t."deletionRequestedAt",
+               ref.name AS "referredByName", grp.name AS "groupName",
                (SELECT COUNT(*) FROM "Tenant" r WHERE r."referredById" = t.id) AS "referralsCount",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
                COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth",
@@ -165,6 +202,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "referralCode": r.get("referralCode"),
                 "referredByName": r.get("referredByName"),
                 "referralsCount": int(r.get("referralsCount") or 0),
+                "deletionRequestedAt": _iso(r.get("deletionRequestedAt")),
                 "parentTenantId": r.get("parentTenantId"),
                 "groupName": r.get("groupName"),
                 "welcomeSentAt": _iso(r.get("welcomeSentAt")),
@@ -237,6 +275,31 @@ def _iso(v) -> str | None:
     if v is None:
         return None
     return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
+
+async def admin_delete_tenant(tenant_id: str, *, confirm: str, actor_user_id: str, ip: str | None) -> dict:
+    """Exclusão definitiva (LGPD): apaga a conta e tudo que depende dela. Exige o nome exato como confirmação."""
+    tenant = await get_tenant_or_404(tenant_id)
+    if (confirm or "").strip() != tenant.name:
+        raise ConflictError("Digite o nome exato da conta para confirmar.", code="confirm_mismatch")
+    user_ids = [m.userId for m in await db.membership.find_many(where={"tenantId": tenant_id})]
+    await audit.record(  # auditoria antes: os registros da conta somem com ela
+        action="admin.tenant_deleted",
+        resource_type="tenant",
+        resource_id=tenant_id,
+        actor_user_id=actor_user_id,
+        metadata={"name": tenant.name, "whatsapp": tenant.whatsapp, "users": len(user_ids)},
+        ip=ip,
+    )
+    await db.tenant.delete(where={"id": tenant_id})  # cascade limpa pacientes, conversas, agenda e anexos
+    orphans = 0
+    for uid in user_ids:
+        if await db.membership.count(where={"userId": uid}) == 0:
+            user = await db.user.find_unique(where={"id": uid})
+            if user is not None and str(user.platformRole) != "SUPER_ADMIN":
+                await db.user.delete(where={"id": uid})
+                orphans += 1
+    return {"deleted": True, "usersRemoved": orphans}
 
 
 async def admin_overview() -> dict:

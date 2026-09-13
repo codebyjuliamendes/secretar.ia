@@ -1,0 +1,20 @@
+# HTTPS automático para os três domínios. O Caddy pede e renova os certificados sozinho.
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:4000
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	# Corpo grande por causa de áudio e imagem em base64 vindos do WhatsApp.
+	request_body {
+		max_size 32MB
+	}
+	reverse_proxy backend:8000
+}
+
+# Painel da Evolution: só o necessário para ler o QR Code e ver o estado da conexão.
+{$EVOLUTION_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy evolution:8080
+}

@@ -161,6 +161,7 @@ model Tenant {
   reminderEnabled       Boolean      @default(true) // lembrete de véspera com confirmação por resposta
   parentTenantId        String? // grupo de unidades: conta principal
   lastQuestionsDigestAt DateTime? // último resumo de "perguntas sem resposta" enviado
+  deletionRequestedAt   DateTime? // dono pediu o encerramento da conta (LGPD); a equipe executa
   paymentMethod         String       @default("") // "", PIX, BOLETO, STRIPE, OUTRO
   billingNote           String? // observação do admin sobre a cobrança
   welcomeSentAt         DateTime? // admin enviou as boas-vindas

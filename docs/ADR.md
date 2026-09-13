@@ -381,3 +381,33 @@ código de indicação na própria migration. A rotina diária passou a rodar le
 Novos crons: `/internal/cron/reminders`. A capacidade por profissional muda o cálculo de disponibilidade para
 todas as contas — sem profissionais cadastrados o comportamento é idêntico ao anterior (capacidade 1).
 
+## ADR-021 — LGPD, encerramento de conta e roteiro de produção (13/set/2026)
+
+**Contexto.** Antes do primeiro cliente real, faltava o que a lei exige e o que ninguém consegue improvisar na
+véspera: dizer publicamente o que fazemos com os dados, aceitar o pedido de quem quer sair e ter um caminho
+testado para subir o sistema.
+**Decisões.**
+1. **Dois papéis explícitos.** Nos dados da conta (dono e equipe) somos controlador; nos dados de quem o negócio
+   atende, o controlador é o negócio e somos operador. As páginas `/privacidade` e `/termos` dizem isso em
+   português claro, listam os subprocessadores (Gemini, provedor de WhatsApp, e-mail, Stripe, Google Calendar,
+   hospedagem), a base legal de cada uso e os prazos de retenção. O texto vive em `web/src/lib/legal.ts` e é uma
+   redação de partida: precisa de revisão de advogado antes de valer.
+2. **Identificação da operadora por configuração.** `LEGAL_ENTITY`, `LEGAL_DOC` e `PRIVACY_EMAIL` alimentam as
+   páginas por `/api/public/config`. Vazios, a linha some, em vez de mostrar dado inventado.
+3. **Consentimento registrado.** Cadastro exige aceitar os Termos e a Política; a página pública de agendamento
+   avisa, antes do botão, que os dados vão para o negócio, com link para a política.
+4. **Exclusão pedida pelo titular.** Quem escreve "apague meus dados" (ou cita a LGPD) tem o pedido reconhecido
+   sem gastar IA: a campanha para na hora, o negócio recebe um aviso com o prazo de 15 dias e a instrução de usar
+   o botão Remover em Contatos, que apaga cadastro, conversas e histórico. Quem decide é o controlador; nós só
+   garantimos que o pedido chegue.
+5. **Encerramento da conta em duas mãos.** O dono pede em Minha conta (`POST /clinic/{id}/account/deletion-request`):
+   nada é apagado, a equipe é avisada por e-mail e o pedido aparece no admin. A exclusão definitiva
+   (`POST /admin/tenants/{id}/delete`) exige digitar o nome exato da conta, apaga tudo em cascata, remove os
+   usuários que só pertenciam a ela e grava a auditoria ANTES de apagar, já que os registros somem junto.
+6. **Produção em um servidor só.** `docker-compose.prod.yml` sobe banco, backend, painel, Evolution API e Caddy
+   com HTTPS automático; `docs/DEPLOY.md` é o roteiro do zero ao primeiro cliente, com checklist de véspera;
+   `deploy/backup.sh` faz o dump diário com rotação e falha alto se o arquivo sair pequeno demais.
+**Consequências.** `Tenant.deletionRequestedAt` (migration). O texto legal precisa ser revisado por advogado e a
+tag da Evolution API confirmada na documentação dela antes de subir. A exclusão definitiva é irreversível por
+desenho: a confirmação por nome é a única trava, e é deliberado que só o super admin possa executá-la.
+
