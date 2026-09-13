@@ -174,7 +174,7 @@ SUPER_ADMIN validado no banco, webhooks (assinatura obrigatória, idempotência 
 status/quota), Evolution (token + instância), Stripe (assinatura, idempotência, status), fila (claim atômico,
 falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de agenda/pacientes, limites de plano e
 recursos de plano (áudio/imagem e base de conhecimento: FREE não inclui, BASIC/PRO/ENTERPRISE incluem com limite
-de documentos, trial usa os recursos do PRO).
+de documentos; sem trial, a clínica nasce ATIVA no FREE e o admin libera o plano).
 
 ## Segurança e multi-tenancy
 
@@ -236,7 +236,7 @@ Ambientes: use bancos e segredos distintos para `development`, `staging` e `prod
 | Sintoma | Causa provável | Ação |
 | --- | --- | --- |
 | `Variáveis obrigatórias ausentes em production` | fail-fast de configuração | defina os segredos listados |
-| Paciente não recebe resposta | tenant `PAST_DUE`/trial vencido/quota | veja Inbox (notificação BILLING) e `ExecutionLog` |
+| Paciente não recebe resposta | tenant `PAST_DUE`/`SUSPENDED`/quota | veja Inbox (notificação BILLING) e `ExecutionLog` |
 | `degraded: true` no webhook | `GEMINI_API_KEY` ausente ou Gemini indisponível | fallback por regras ativo; verifique a chave |
 | Paciente manda áudio/imagem e recebe "só consigo ler texto" | IA sem chave, arquivo acima do limite (16 MB áudio / 8 MB imagem) ou provider console sem acesso à mídia | configure `GEMINI_API_KEY` e a Evolution API; veja `error: media_unreadable` no ExecutionLog |
 | Jobs em `FAILED` | integração recusou (permanente) | Admin → Fila de tarefas → detalhe do erro → reprocessar |

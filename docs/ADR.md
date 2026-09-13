@@ -140,22 +140,21 @@ servidor não conhecer o parâmetro, a consulta simples é usada. Nunca recriar 
 Neon/Supabase já oferecem). Reindexação manual disponível para quando a chave de IA for configurada depois.
 Ingestão de PDF/URL e sugestão automática de documentos ficam como evolução.
 
-## ADR-013 — Leitura de mídia e base de conhecimento como recursos de plano (PRO no trial)
+## ADR-013 — Leitura de mídia e base de conhecimento como recursos de plano
 
 **Contexto.** ADR-010 e ADR-012 deixaram explícito que o gating de áudio/imagem e RAG por plano era decisão de
 produto pendente. Sem ele, o FREE consumia Gemini multimodal e embeddings sem nenhuma receita associada.
 **Decisão.** `PlanLimits` ganha `media_understanding`, `knowledge_base` e `max_knowledge_documents`: FREE não
-tem nenhum dos dois; BASIC tem ambos com 10 documentos; PRO 50; ENTERPRISE ilimitado. Durante o **trial** a
-clínica usa os recursos do PRO (`TRIAL_FEATURE_PLAN`), mantendo os limites de volume (mensagens, pacientes,
-membros) do plano contratado — recurso é o que se experimenta, volume é o que se paga. A resolução fica em
+tem nenhum dos dois; BASIC tem ambos com 10 documentos; PRO 50; ENTERPRISE ilimitado. (A regra original
+"trial usa os recursos do PRO" foi revogada pelo ADR-016: não existe trial.) A resolução fica em
 `domain/plans.py::feature_plan/feature_enabled` e é aplicada no backend: mídia fora do plano responde ao
 paciente pedindo texto sem acionar o provedor, registra `error=media_not_in_plan` e avisa a clínica na inbox
 (BILLING, dedupe 24 h); base de conhecimento fora do plano devolve 402 `plan_feature_locked` em criar/reindexar,
 a IA não recupera trechos e a busca de teste responde `locked`. Documentos existentes de uma clínica que caiu
 para o FREE são preservados e voltam a valer ao subir de plano. O frontend só reflete (`featureAccess` nas
 configurações, `knowledgeDocuments` no uso, recursos nos cards de plano).
-**Consequências.** Custo de IA alinhado à receita; conversão do trial pela experiência completa. Mudar a
-política é alterar `PLAN_LIMITS`/`TRIAL_FEATURE_PLAN`, sem tocar em rotas. O campo `Tenant.features` (Json)
+**Consequências.** Custo de IA alinhado à receita. Mudar a política é alterar `PLAN_LIMITS` (ou
+`feature_plan`, ponto único para exceções), sem tocar em rotas. O campo `Tenant.features` (Json)
 **não** sobrepõe o plano e deixou de ser editável pela API da clínica (12/set/2026); fica reservado para
 sobreposições feitas pelo super admin, se um dia forem necessárias.
 
@@ -224,3 +223,19 @@ garante um canal `events.watch` para `/api/integrations/google/notify` com `toke
 há um pendente; `sync` (handshake) e canais desconhecidos são ignorados com 2xx para o Google não retentar;
 token errado é 403. O BFF do frontend não expõe essa rota. Falha ao criar o canal não derruba a leitura:
 vira `push=failed` no resultado e o polling segue. Desconectar para o canal antes de revogar o token.
+
+## ADR-016 — Sem período de teste: clínica nasce ativa no FREE e o plano pago é liberado pelo admin
+
+**Contexto.** O MVP dava 14 dias de trial com status `TRIAL`/`trialEndsAt` e, desde o ADR-013, recursos do
+PRO nesse período. Decisão de produto da Julia (12/set/2026): não há trial; é ela quem libera o plano de cada
+cliente manualmente.
+**Decisão.** O cadastro cria a clínica com `status=ACTIVE` e `plan=FREE`; o plano pago é definido pelo
+SUPER_ADMIN na tela de clínicas (ou pelo webhook do Stripe, se o checkout estiver configurado). O status
+`TRIAL` e a coluna `trialEndsAt` foram removidos (migration converte clínicas em `TRIAL` para `ACTIVE`);
+`is_tenant_operational` só bloqueia `PAST_DUE`/`CANCELED`/`SUSPENDED`. `feature_plan` passa a ser sempre o
+plano contratado e fica como ponto único caso um dia exista exceção. Textos de "teste gratuito" saíram da
+landing, do cadastro, do painel e do admin; o painel admin mostra "no plano gratuito" no lugar de "em teste".
+**Consequências.** Uma clínica recém-cadastrada funciona imediatamente com os limites do FREE (200 mensagens
+de IA/mês, 100 pacientes, 2 membros, só texto, sem base de conhecimento) até o admin mudar o plano — ou
+suspendê-la. Menos estados e menos código temporal (nenhum job de expiração). Se um dia quisermos limitar o
+FREE no tempo, a alavanca é `status=SUSPENDED` pelo admin, não um trial novo.

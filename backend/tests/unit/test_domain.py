@@ -68,26 +68,25 @@ def test_plan_limits():
     assert limits_for(Plan.BASIC).upsell_campaigns
 
 
-def test_plan_features_follow_pro_during_trial_and_plan_afterwards():
-    from datetime import UTC, datetime, timedelta
+def test_plan_features_follow_the_contracted_plan():
     from types import SimpleNamespace
 
     from app.domain.plans import feature_access_view, feature_enabled, feature_plan, knowledge_documents_limit
 
-    future, past = datetime.now(UTC) + timedelta(days=3), datetime.now(UTC) - timedelta(days=1)
-    trial = SimpleNamespace(plan="FREE", status="TRIAL", trialEndsAt=future)
-    assert feature_plan(trial) == Plan.PRO
-    assert feature_enabled(trial, "media") and feature_enabled(trial, "knowledge")
-    assert knowledge_documents_limit(trial) == 50 and feature_access_view(trial)["source"] == "trial"
-
-    expired = SimpleNamespace(plan="FREE", status="TRIAL", trialEndsAt=past)
-    assert feature_plan(expired) == Plan.FREE and not feature_enabled(expired, "media")
-
-    free = SimpleNamespace(plan="FREE", status="ACTIVE", trialEndsAt=None)
-    assert not feature_enabled(free, "knowledge") and knowledge_documents_limit(free) == 0
-    basic = SimpleNamespace(plan="BASIC", status="ACTIVE", trialEndsAt=None)
+    free = SimpleNamespace(plan="FREE", status="ACTIVE")
+    assert feature_plan(free) == Plan.FREE
+    assert not feature_enabled(free, "media") and not feature_enabled(free, "knowledge")
+    assert knowledge_documents_limit(free) == 0 and feature_access_view(free)["featurePlan"] == "FREE"
+    basic = SimpleNamespace(plan="BASIC", status="ACTIVE")
     assert feature_enabled(basic, "media") and knowledge_documents_limit(basic) == 10
-    enterprise = SimpleNamespace(plan="ENTERPRISE", status="PAST_DUE", trialEndsAt=None)
+    pro = SimpleNamespace(plan="PRO", status="ACTIVE")
+    assert feature_access_view(pro) == {
+        "featurePlan": "PRO",
+        "media": True,
+        "knowledge": True,
+        "maxKnowledgeDocuments": 50,
+    }
+    enterprise = SimpleNamespace(plan="ENTERPRISE", status="PAST_DUE")
     assert knowledge_documents_limit(enterprise) == -1 and within_limit(10_000, knowledge_documents_limit(enterprise))
     with pytest.raises(ValueError):
         feature_enabled(free, "teleporte")

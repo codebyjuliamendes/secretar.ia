@@ -10,7 +10,7 @@ import type { AdminTenant, Paginated, Plan, TenantStatus } from "@/lib/types";
 import { useDebounced, useQuery } from "@/lib/use-query";
 
 const PLANS: Plan[] = ["FREE", "BASIC", "PRO", "ENTERPRISE"];
-const STATUSES: TenantStatus[] = ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"];
+const STATUSES: TenantStatus[] = ["ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"];
 const LIMIT = 25;
 
 export default function AdminTenantsPage() {
@@ -68,7 +68,7 @@ export default function AdminTenantsPage() {
                   </Td>
                   <Td>{t.patientCount}</Td><Td>{t.appointmentCount}</Td><Td>{t.memberCount}</Td>
                   <Td><Badge tone={t.whatsappConnected ? "success" : "neutral"}>{t.whatsappConnected ? "conectado" : "off"}</Badge></Td>
-                  <Td className="whitespace-nowrap">{formatDate(t.createdAt)}{t.status === "TRIAL" && <p className="text-xs text-muted">teste até {formatDate(t.trialEndsAt)}</p>}<Badge tone={STATUS_TONE[t.status]} className="sr-only">{STATUS_LABEL[t.status]}</Badge></Td>
+                  <Td className="whitespace-nowrap">{formatDate(t.createdAt)}<Badge tone={STATUS_TONE[t.status]} className="sr-only">{STATUS_LABEL[t.status]}</Badge></Td>
                 </tr>
               ))}
             </tbody>
@@ -83,7 +83,7 @@ export default function AdminTenantsPage() {
 
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "FREE" as Plan, status: "TRIAL" as TenantStatus });
+  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "FREE" as Plan, status: "ACTIVE" as TenantStatus });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

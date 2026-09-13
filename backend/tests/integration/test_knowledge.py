@@ -41,6 +41,7 @@ def test_fts_query_and_snippets_text():
 async def test_knowledge_crud_retrieval_and_isolation(client, clean_db):
     reg = await register_user(client)
     tid, h = reg["tenantId"], auth_headers(reg)
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})  # sem trial: o admin libera o plano
     assert (await client.get(f"/api/clinic/{tid}/knowledge", headers=h)).json() == {"items": []}
 
     short = await client.post(f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "X", "content": "curto"})
@@ -173,6 +174,7 @@ async def test_vector_retrieval_uses_hnsw_index_and_ranks_by_cosine(client, clea
 
     reg = await register_user(client)
     tid, h = reg["tenantId"], auth_headers(reg)
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})
     d1 = await client.post(
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Pagamento e cancelamento", "content": DOC_PAGAMENTO}
     )

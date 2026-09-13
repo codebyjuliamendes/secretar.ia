@@ -1,7 +1,7 @@
 """Recursos de plano: leitura de áudio/imagem e base de conhecimento (RAG).
 
-Regra: FREE não inclui nenhum dos dois; BASIC/PRO/ENTERPRISE incluem (com limite de documentos por plano);
-durante o TRIAL a clínica experimenta os recursos do PRO. Tudo verificado no backend.
+Regra: FREE não inclui nenhum dos dois; BASIC/PRO/ENTERPRISE incluem (com limite de documentos por plano).
+Não há trial: a clínica nasce ATIVA no FREE e o admin libera o plano pago. Tudo verificado no backend.
 """
 
 import base64
@@ -32,19 +32,26 @@ class FakeGemini:
         return AIResult(text="não deveria ser chamado", input_tokens=1, output_tokens=1, model="fake")
 
 
-async def test_trial_has_pro_features_and_downgrade_to_free_locks_them(client, clean_db):
+async def test_new_clinic_is_active_free_and_plan_unlocks_features(client, clean_db):
     reg = await register_user(client)
     tid, h = reg["tenantId"], auth_headers(reg)
 
+    summary = (await client.get(f"/api/clinic/{tid}", headers=h)).json()
+    assert summary["status"] == "ACTIVE" and summary["plan"] == "FREE" and "trialEndsAt" not in summary
     settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
     assert settings["featureAccess"] == {
-        "source": "trial",
-        "featurePlan": "PRO",
-        "media": True,
-        "knowledge": True,
-        "maxKnowledgeDocuments": 50,
+        "featurePlan": "FREE",
+        "media": False,
+        "knowledge": False,
+        "maxKnowledgeDocuments": 0,
     }
-    assert settings["planLimits"]["knowledgeBase"] is False  # o plano contratado (FREE) não inclui
+    assert settings["planLimits"]["knowledgeBase"] is False
+    billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
+    assert billing["usage"]["knowledgeDocuments"] == {"used": 0, "limit": 0}
+    # O admin libera o plano manualmente (aqui, direto no banco): recursos passam a valer.
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})
+    settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
+    assert settings["featureAccess"]["featurePlan"] == "PRO" and settings["featureAccess"]["knowledge"] is True
     billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
     assert billing["usage"]["knowledgeDocuments"] == {"used": 0, "limit": 50}
     plans = {p["plan"]: p for p in billing["plans"]}
@@ -59,10 +66,10 @@ async def test_trial_has_pro_features_and_downgrade_to_free_locks_them(client, c
     patched = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"features": {"knowledge": True}})
     assert patched.status_code == 200 and patched.json()["features"] == {}
 
-    # Trial acabou e a clínica ficou no FREE: documento continua listado, mas não pode ser alterado nem usado.
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "FREE"})
+    # Voltou ao FREE: documento continua listado, mas não pode ser alterado nem usado.
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "FREE"})
     settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
-    assert settings["featureAccess"]["source"] == "plan" and settings["featureAccess"]["knowledge"] is False
+    assert settings["featureAccess"]["knowledge"] is False
     assert len((await client.get(f"/api/clinic/{tid}/knowledge", headers=h)).json()["items"]) == 1
     locked = await client.post(
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Outro", "content": DOC_PAGAMENTO}

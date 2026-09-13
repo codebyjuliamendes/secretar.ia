@@ -413,9 +413,6 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
             A assistente não consulta a base de conhecimento no plano atual{data && data.items.length > 0 ? "; os documentos ficam guardados e voltam a valer ao fazer upgrade" : ""}. Veja os planos em Plano &amp; uso.
           </Alert>
         )}
-        {!locked && access.source === "trial" && (
-          <Alert tone="info">Durante o período de teste você usa os recursos do plano {access.featurePlan === "PRO" ? "Pro" : access.featurePlan}. Ao contratar, valem os limites do plano escolhido.</Alert>
-        )}
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : loading || !data ? (

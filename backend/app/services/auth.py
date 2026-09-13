@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from app.config import Settings
 from app.db import db
 from app.domain.phones import normalize_phone
-from app.domain.plans import TRIAL_DAYS
 from app.errors import AppError, ConflictError, UnauthorizedError
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_EMAIL
@@ -120,9 +119,8 @@ async def register(
                         f"Você é a secretária virtual da clínica {clinic_name.strip()}. "
                         "Seja cordial, objetiva e profissional."
                     ),
-                    "status": "TRIAL",
+                    "status": "ACTIVE",
                     "plan": "FREE",
-                    "trialEndsAt": datetime.now(UTC) + timedelta(days=TRIAL_DAYS),
                 }
             )
             await tx.membership.create(data={"userId": user.id, "tenantId": tenant.id, "role": "OWNER"})
@@ -274,7 +272,6 @@ async def me(user_id: str) -> dict:
                     "name": m.tenant.name,
                     "status": str(m.tenant.status),
                     "plan": str(m.tenant.plan),
-                    "trialEndsAt": m.tenant.trialEndsAt.isoformat() if m.tenant.trialEndsAt else None,
                     "whatsappConnected": m.tenant.whatsappConnected,
                 },
             }

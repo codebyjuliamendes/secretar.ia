@@ -142,7 +142,7 @@ async def test_billing_webhook_signature_idempotency_and_status(client, clean_db
         )
     ).status_code == 401
     t = await clean_db.tenant.find_unique(where={"id": tid})
-    assert str(t.status) == "TRIAL"
+    assert str(t.status) == "ACTIVE" and t.subscriptionId is None  # evento sem assinatura válida não foi aplicado
 
     good = {"Stripe-Signature": sign_stripe(body, "whsec_test"), "Content-Type": "application/json"}
     res = await client.post("/api/webhooks/billing", content=body, headers=good)

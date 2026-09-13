@@ -98,7 +98,6 @@ async def process_event(payload: dict[str, Any]) -> dict[str, Any]:
             data["status"] = "CANCELED"
         else:
             data["status"] = "ACTIVE"
-            data["trialEndsAt"] = None
         if info["plan"]:
             data["plan"] = info["plan"].value
     elif etype == "invoice.payment_failed":
@@ -169,7 +168,6 @@ async def billing_overview(settings: Settings, tenant) -> dict[str, Any]:
     return {
         "status": str(tenant.status),
         "plan": str(tenant.plan),
-        "trialEndsAt": tenant.trialEndsAt.isoformat() if tenant.trialEndsAt else None,
         "subscriptionId": tenant.subscriptionId,
         "hasCustomer": bool(tenant.customerId),
         "checkoutEnabled": checkout_enabled(settings),

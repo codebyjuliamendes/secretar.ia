@@ -33,7 +33,6 @@ export function AppShell({
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [resending, setResending] = useState(false);
-  const [now] = useState(() => Date.now());
   const base = `/app/${tenant.id}`;
 
   const allNav: NavItem[] = [
@@ -49,7 +48,6 @@ export function AppShell({
   ];
   const nav = allNav.filter((item) => !item.roles || item.roles.includes(tenant.role));
 
-  const trialDays = tenant.trialEndsAt ? Math.ceil((new Date(tenant.trialEndsAt).getTime() - now) / 86400000) : null;
 
   async function resend() {
     setResending(true);
@@ -170,16 +168,6 @@ export function AppShell({
                 <button onClick={resend} disabled={resending} className="font-medium underline">
                   {resending ? "Enviando…" : "Reenviar e-mail"}
                 </button>
-              </Alert>
-            )}
-            {tenant.status === "TRIAL" && trialDays !== null && (
-              <Alert tone={trialDays <= 3 ? "warning" : "info"}>
-                {trialDays > 0 ? `Seu período de teste termina em ${trialDays} dia(s).` : "Seu período de teste terminou."}{" "}
-                {tenant.role !== "STAFF" && (
-                  <Link href={`${base}/billing`} className="font-medium underline">
-                    Ver planos
-                  </Link>
-                )}
               </Alert>
             )}
             {tenant.status === "PAST_DUE" && (

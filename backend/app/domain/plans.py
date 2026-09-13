@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -71,11 +70,7 @@ PLAN_LIMITS: dict[Plan, PlanLimits] = {
     ),
 }
 
-TRIAL_DAYS = 14
-# Durante o período de teste a clínica experimenta os RECURSOS deste plano (mídia, base de conhecimento);
-# os limites de volume (mensagens, pacientes, membros) continuam sendo os do plano contratado (FREE).
-TRIAL_FEATURE_PLAN = Plan.PRO
-
+# Não há período de teste: a clínica nasce no FREE e o plano pago é liberado manualmente pelo admin (ADR-016).
 FEATURES = ("media", "knowledge")
 
 
@@ -87,35 +82,27 @@ def within_limit(current: int, limit: int) -> bool:
     return limit < 0 or current < limit
 
 
-def in_trial(tenant, now: datetime | None = None) -> bool:
-    if str(tenant.status) != "TRIAL":
-        return False
-    ends = getattr(tenant, "trialEndsAt", None)
-    return ends is None or ends > (now or datetime.now(UTC))
+def feature_plan(tenant) -> Plan:
+    """Plano cujos recursos valem para o tenant (hoje é sempre o plano contratado; ponto único para exceções)."""
+    return Plan(str(tenant.plan))
 
 
-def feature_plan(tenant, now: datetime | None = None) -> Plan:
-    """Plano cujos RECURSOS valem para o tenant: PRO durante o trial, senão o plano contratado."""
-    return TRIAL_FEATURE_PLAN if in_trial(tenant, now) else Plan(str(tenant.plan))
-
-
-def feature_enabled(tenant, feature: str, now: datetime | None = None) -> bool:
+def feature_enabled(tenant, feature: str) -> bool:
     if feature not in FEATURES:
         raise ValueError(f"feature desconhecida: {feature}")
-    lim = PLAN_LIMITS[feature_plan(tenant, now)]
+    lim = PLAN_LIMITS[feature_plan(tenant)]
     return lim.media_understanding if feature == "media" else lim.knowledge_base
 
 
-def knowledge_documents_limit(tenant, now: datetime | None = None) -> int:
-    return PLAN_LIMITS[feature_plan(tenant, now)].max_knowledge_documents
+def knowledge_documents_limit(tenant) -> int:
+    return PLAN_LIMITS[feature_plan(tenant)].max_knowledge_documents
 
 
-def feature_access_view(tenant, now: datetime | None = None) -> dict:
-    """O que a clínica pode usar agora e por quê (trial ou plano) — para a UI explicar bloqueios."""
-    plan = feature_plan(tenant, now)
+def feature_access_view(tenant) -> dict:
+    """O que a clínica pode usar agora — para a UI explicar bloqueios."""
+    plan = feature_plan(tenant)
     lim = PLAN_LIMITS[plan]
     return {
-        "source": "trial" if in_trial(tenant, now) else "plan",
         "featurePlan": plan.value,
         "media": lim.media_understanding,
         "knowledge": lim.knowledge_base,

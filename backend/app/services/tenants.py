@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from app.db import db
@@ -11,7 +10,7 @@ from app.errors import ConflictError, NotFoundError
 from app.services import audit
 from generated_prisma.errors import UniqueViolationError
 
-ALLOWED_TENANT_STATUSES = {"TRIAL", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
+ALLOWED_TENANT_STATUSES = {"ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
 
 
 def tenant_public(t) -> dict:
@@ -22,7 +21,6 @@ def tenant_public(t) -> dict:
         "whatsappConnected": t.whatsappConnected,
         "status": str(t.status),
         "plan": str(t.plan),
-        "trialEndsAt": t.trialEndsAt.isoformat() if t.trialEndsAt else None,
         "timezone": t.timezone,
         "createdAt": t.createdAt.isoformat(),
     }
@@ -49,8 +47,6 @@ def is_tenant_operational(t) -> tuple[bool, str | None]:
     status = str(t.status)
     if status in ("PAST_DUE", "CANCELED", "SUSPENDED"):
         return False, f"tenant_{status.lower()}"
-    if status == "TRIAL" and t.trialEndsAt and t.trialEndsAt < datetime.now(UTC):
-        return False, "trial_expired"
     return True, None
 
 
@@ -95,7 +91,7 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
     rows = await db.query_raw(
         """
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan,
-               t."whatsappConnected", t."trialEndsAt", t."createdAt",
+               t."whatsappConnected", t."createdAt",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
                COALESCE(m.cnt, 0) AS "memberCount"
         FROM "Tenant" t
@@ -122,7 +118,6 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "status": r["status"],
                 "plan": r["plan"],
                 "whatsappConnected": bool(r["whatsappConnected"]),
-                "trialEndsAt": _iso(r.get("trialEndsAt")),
                 "createdAt": _iso(r.get("createdAt")),
                 "appointmentCount": int(r["appointmentCount"] or 0),
                 "patientCount": int(r["patientCount"] or 0),
@@ -143,7 +138,7 @@ async def admin_overview() -> dict:
         """
         SELECT
           COUNT(*) FILTER (WHERE status = 'ACTIVE') AS active,
-          COUNT(*) FILTER (WHERE status = 'TRIAL') AS trial,
+          COUNT(*) FILTER (WHERE status = 'ACTIVE' AND plan = 'FREE') AS free,
           COUNT(*) FILTER (WHERE status = 'PAST_DUE') AS past_due,
           COUNT(*) FILTER (WHERE status IN ('CANCELED','SUSPENDED')) AS inactive,
           COUNT(*) AS total
@@ -164,7 +159,7 @@ async def admin_overview() -> dict:
         "tenants": {
             "total": int(r.get("total") or 0),
             "active": int(r.get("active") or 0),
-            "trial": int(r.get("trial") or 0),
+            "free": int(r.get("free") or 0),
             "pastDue": int(r.get("past_due") or 0),
             "inactive": int(r.get("inactive") or 0),
         },
@@ -184,8 +179,7 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
                 "prices": data.get("prices"),
                 "businessHours": data.get("businessHours"),
                 "plan": data.get("plan") or "FREE",
-                "status": data.get("status") or "TRIAL",
-                "trialEndsAt": data.get("trialEndsAt"),
+                "status": data.get("status") or "ACTIVE",
             }
         )
     except UniqueViolationError as exc:

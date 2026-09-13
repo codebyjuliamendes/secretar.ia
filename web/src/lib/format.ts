@@ -28,7 +28,6 @@ export const formatPhone = (digits: string) => {
 };
 
 export const STATUS_LABEL: Record<TenantStatus, string> = {
-  TRIAL: "Em teste",
   ACTIVE: "Ativa",
   PAST_DUE: "Pagamento pendente",
   CANCELED: "Cancelada",
@@ -36,7 +35,6 @@ export const STATUS_LABEL: Record<TenantStatus, string> = {
 };
 
 export const STATUS_TONE: Record<TenantStatus, "success" | "info" | "warning" | "danger" | "neutral"> = {
-  TRIAL: "info",
   ACTIVE: "success",
   PAST_DUE: "warning",
   CANCELED: "neutral",

@@ -25,7 +25,6 @@ enum TenantRole {
 }
 
 enum TenantStatus {
-  TRIAL
   ACTIVE
   PAST_DUE
   CANCELED
@@ -147,9 +146,8 @@ model Tenant {
   prices            String?
   businessHours     String?
   timezone          String       @default("America/Sao_Paulo")
-  status            TenantStatus @default(TRIAL)
+  status            TenantStatus @default(ACTIVE)
   plan              Plan         @default(FREE)
-  trialEndsAt       DateTime?
   subscriptionId    String?      @unique
   customerId        String?
   upsellEnabled     Boolean      @default(false)

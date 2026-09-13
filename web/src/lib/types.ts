@@ -1,6 +1,6 @@
 export type PlatformRole = "USER" | "SUPER_ADMIN";
 export type TenantRole = "OWNER" | "MANAGER" | "STAFF";
-export type TenantStatus = "TRIAL" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "SUSPENDED";
+export type TenantStatus = "ACTIVE" | "PAST_DUE" | "CANCELED" | "SUSPENDED";
 export type Plan = "FREE" | "BASIC" | "PRO" | "ENTERPRISE";
 export type AppointmentStatus = "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELED" | "NO_SHOW";
 
@@ -12,7 +12,6 @@ export interface MembershipSummary {
     name: string;
     status: TenantStatus;
     plan: Plan;
-    trialEndsAt: string | null;
     whatsappConnected: boolean;
   };
 }
@@ -33,7 +32,6 @@ export interface TenantSummary {
   whatsappConnected: boolean;
   status: TenantStatus;
   plan: Plan;
-  trialEndsAt: string | null;
   timezone: string;
   createdAt: string;
   role: TenantRole;
@@ -52,9 +50,8 @@ export interface PlanLimits {
   priceCentsMonth: number;
 }
 
-/** O que a clínica pode usar agora (recursos de plano); no trial valem os recursos do PRO. */
+/** O que a clínica pode usar agora (recursos do plano contratado). */
 export interface FeatureAccess {
-  source: "trial" | "plan";
   featurePlan: Plan;
   media: boolean;
   knowledge: boolean;
@@ -223,7 +220,6 @@ export interface AuditEntry {
 export interface Billing {
   status: TenantStatus;
   plan: Plan;
-  trialEndsAt: string | null;
   subscriptionId: string | null;
   hasCustomer: boolean;
   checkoutEnabled: boolean;
@@ -273,7 +269,6 @@ export interface AdminTenant {
   status: TenantStatus;
   plan: Plan;
   whatsappConnected: boolean;
-  trialEndsAt: string | null;
   createdAt: string;
   appointmentCount: number;
   patientCount: number;
@@ -281,7 +276,7 @@ export interface AdminTenant {
 }
 
 export interface AdminOverview {
-  tenants: { total: number; active: number; trial: number; pastDue: number; inactive: number };
+  tenants: { total: number; active: number; free: number; pastDue: number; inactive: number };
   mrrCents: number;
   aiMessagesThisMonth: number;
   failedJobs: number;

@@ -18,7 +18,7 @@ from app.services import tenants as tenant_service
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_super_admin)])
 
 PlanLiteral = Literal["FREE", "BASIC", "PRO", "ENTERPRISE"]
-StatusLiteral = Literal["TRIAL", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"]
+StatusLiteral = Literal["ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"]
 
 
 class TenantCreateIn(BaseModel):
@@ -28,15 +28,13 @@ class TenantCreateIn(BaseModel):
     prices: str | None = Field(default=None, max_length=4000)
     businessHours: str | None = Field(default=None, max_length=300)
     plan: PlanLiteral = "FREE"
-    status: StatusLiteral = "TRIAL"
-    trialEndsAt: datetime | None = None
+    status: StatusLiteral = "ACTIVE"
 
 
 class TenantUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     plan: PlanLiteral | None = None
     status: StatusLiteral | None = None
-    trialEndsAt: datetime | None = None
 
 
 @router.get("/overview")

@@ -69,7 +69,7 @@ def chunk_text(text: str, *, target: int = CHUNK_TARGET_CHARS, maximum: int = CH
 
 
 def assert_enabled(tenant) -> None:
-    """Base de conhecimento é recurso de plano (BASIC+; PRO durante o trial). Documentos existentes de uma
+    """Base de conhecimento é recurso de plano (BASIC+). Documentos existentes de uma
     clínica que voltou ao FREE ficam guardados, mas não são alterados nem usados pela IA."""
     if not feature_enabled(tenant, "knowledge"):
         raise PlanFeatureLockedError(
