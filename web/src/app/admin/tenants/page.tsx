@@ -121,7 +121,7 @@ export default function AdminTenantsPage() {
 
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "BASIC" as Plan, status: "ACTIVE" as TenantStatus, niche: "clinica" });
+  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "", prices: "", businessHours: "", plan: "BASIC" as Plan, status: "ACTIVE" as TenantStatus, niche: "clinica" });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -150,7 +150,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
           <Field label="Plano" htmlFor="t-plan"><Select id="t-plan" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value as Plan })}>{PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}</Select></Field>
           <Field label="Status" htmlFor="t-status"><Select id="t-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as TenantStatus })}>{STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</Select></Field>
         </div>
-        <Field label="Prompt" htmlFor="t-prompt" required><Textarea id="t-prompt" required value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} /></Field>
+        <Field label="Instruções extras (opcional)" htmlFor="t-prompt" hint="A assistente já vem pronta pelo nicho e pelo tom; use só para algo específico deste negócio."><Textarea id="t-prompt" value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} /></Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Serviços e preços" htmlFor="t-prices"><Textarea id="t-prices" rows={3} value={form.prices} onChange={(e) => setForm({ ...form, prices: e.target.value })} /></Field>
           <Field label="Horário de funcionamento" htmlFor="t-hours"><Input id="t-hours" value={form.businessHours} onChange={(e) => setForm({ ...form, businessHours: e.target.value })} /></Field>

@@ -47,16 +47,18 @@ export default function PatientsPage() {
     }
   }
 
+  const person = tenant.niche?.person ?? "paciente";
+  const people = (tenant.niche?.people ?? "Pacientes").toLowerCase();
   return (
     <>
-      <PageHeader title={tenant.niche?.people ?? "Pacientes"} description={`Todo contato pelo WhatsApp vira um ${tenant.niche?.person ?? "paciente"} automaticamente.`} action={<Button onClick={() => setModal(true)}>Novo {tenant.niche?.person ?? "paciente"}</Button>} />
+      <PageHeader title={tenant.niche?.people ?? "Pacientes"} description={`Todo contato pelo WhatsApp vira um ${person} automaticamente.`} action={<Button onClick={() => setModal(true)}>Novo {person}</Button>} />
       <Input aria-label="Buscar paciente" placeholder="Buscar por nome ou telefone" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} className="mb-4 sm:max-w-xs" />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
       ) : loading && !data ? (
         <Skeleton className="h-64" />
       ) : !data || data.items.length === 0 ? (
-        <EmptyState title={q ? "Nenhum paciente encontrado" : "Nenhum paciente ainda"} description={q ? "Tente outro nome ou telefone." : "Conecte o WhatsApp para que os pacientes sejam cadastrados automaticamente, ou cadastre manualmente."} />
+        <EmptyState title={q ? `Nenhum ${person} encontrado` : `Nenhum ${person} ainda`} description={q ? "Tente outro nome ou telefone." : `Conecte o WhatsApp para que os ${people} sejam cadastrados automaticamente, ou cadastre manualmente.`} />
       ) : (
         <>
           <Table>
