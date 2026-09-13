@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import Settings
-from app.domain.intents import Intent, classify, coerce_intent
+from app.domain.intents import Intent, asks_prices_or_hours, classify, coerce_intent
 from app.integrations.gemini import AIProviderError, GeminiClient, parse_json_output
 from app.logging import get_logger
 
@@ -34,9 +34,17 @@ class AppointmentIntentData(BaseModel):
 
 class ModelOutput(BaseModel):
     intent: str
-    reply: str = Field(min_length=1, max_length=1500)
+    reply: str = Field(max_length=1500)
     needs_human: bool = False
     appointment: AppointmentIntentData | None = None
+
+    @field_validator("reply")
+    @classmethod
+    def _reply_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("reply vazio")
+        return v
 
 
 RESPONSE_SCHEMA = {
@@ -136,6 +144,12 @@ def _parse_datetime(value: str | None, tz: ZoneInfo) -> datetime | None:
     return dt.astimezone(UTC)
 
 
+UNKNOWN_INFO_REPLY = (
+    "Boa pergunta! Não tenho essa informação aqui, mas já avisei nossa equipe e alguém te responde por este "
+    "WhatsApp em breve."
+)
+
+
 def rules_reply(
     tenant,
     intent: Intent,
@@ -143,6 +157,7 @@ def rules_reply(
     free_slots_text: str | None = None,
     services_text: str | None = None,
     knowledge_snippet: str | None = None,
+    text: str | None = None,
 ) -> str:
     hours = tenant.businessHours or "horário comercial"
     if intent == Intent.HUMAN:
@@ -162,10 +177,40 @@ def rules_reply(
         return (
             f"Sobre isso, o que temos registrado: {knowledge_snippet} Se precisar, encaminho para a equipe confirmar."
         )
+    if text is not None and not asks_prices_or_hours(text):
+        # Dúvida que catálogo/horários não respondem ("tem estacionamento?"): melhor a equipe do que colar preços.
+        return UNKNOWN_INFO_REPLY
     prices = services_text or tenant.prices
     if prices:
         return f"Claro! Nossos serviços e valores: {prices}. Atendemos em {hours}. Quer agendar?"
     return f"Nossa equipe atende em {hours}. Posso te ajudar a agendar ou tirar outra dúvida?"
+
+
+def rules_decision(
+    tenant,
+    text: str,
+    *,
+    free_slots_text: str | None,
+    services_text: str | None,
+    knowledge_snippet: str | None,
+    error: str,
+) -> AIDecision:
+    intent = classify(text)
+    reply = rules_reply(
+        tenant,
+        intent,
+        free_slots_text=free_slots_text,
+        services_text=services_text,
+        knowledge_snippet=knowledge_snippet,
+        text=text,
+    )
+    return AIDecision(
+        intent=intent,
+        reply=reply,
+        needs_human=intent == Intent.HUMAN or reply == UNKNOWN_INFO_REPLY,
+        degraded=True,
+        error=error,
+    )
 
 
 class AIService:
@@ -202,20 +247,13 @@ class AIService:
         text = re.sub(r"\s+", " ", text).strip()[:MAX_INPUT_CHARS]
         rule_intent = classify(text)
         tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
+        fallback_kwargs = {
+            "free_slots_text": free_slots_text,
+            "services_text": services_text,
+            "knowledge_snippet": knowledge_snippet,
+        }
         if self._client is None:
-            return AIDecision(
-                intent=rule_intent,
-                reply=rules_reply(
-                    tenant,
-                    rule_intent,
-                    free_slots_text=free_slots_text,
-                    services_text=services_text,
-                    knowledge_snippet=knowledge_snippet,
-                ),
-                needs_human=rule_intent == Intent.HUMAN,
-                degraded=True,
-                error="ai_not_configured",
-            )
+            return rules_decision(tenant, text, error="ai_not_configured", **fallback_kwargs)
         system_prompt = build_system_prompt(
             tenant,
             now_local=datetime.now(tz),
@@ -229,21 +267,9 @@ class AIService:
         try:
             result = await self._client.generate_json(system_prompt, messages, RESPONSE_SCHEMA)
             parsed = ModelOutput.model_validate(parse_json_output(result.text))
-        except (AIProviderError, ValidationError) as exc:
-            log.warning("ai_fallback_rules", error=str(exc))
-            return AIDecision(
-                intent=rule_intent,
-                reply=rules_reply(
-                    tenant,
-                    rule_intent,
-                    free_slots_text=free_slots_text,
-                    services_text=services_text,
-                    knowledge_snippet=knowledge_snippet,
-                ),
-                needs_human=rule_intent == Intent.HUMAN,
-                degraded=True,
-                error=str(exc)[:300],
-            )
+        except (AIProviderError, ValidationError, ValueError) as exc:
+            log.warning("ai_fallback_rules", error=str(exc)[:300])
+            return rules_decision(tenant, text, error=str(exc)[:300], **fallback_kwargs)
         intent = coerce_intent(parsed.intent) or rule_intent
         # Pedidos explícitos por humano prevalecem sobre a leitura do modelo.
         if rule_intent == Intent.HUMAN:

@@ -47,7 +47,7 @@ async def test_whatsapp_webhook_full_flow_idempotent_and_scoped(client, clean_db
     jobs = await clean_db.job.find_many(where={"name": "send-whatsapp"})
     assert len(jobs) == 1 and jobs[0].payload["tenantId"] == tid
     usage = await clean_db.usagecounter.find_first(where={"tenantId": tid})
-    assert usage and usage.count == 1
+    assert usage is None  # resposta por regras (sem IA) não consome a quota de mensagens de IA
 
     # Mesmo messageId em OUTRO tenant é uma mensagem distinta (idempotência é por tenant).
     other = await register_user(client)

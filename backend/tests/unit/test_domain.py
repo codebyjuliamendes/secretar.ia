@@ -17,7 +17,7 @@ from app.domain.roles import Permission, TenantRole, can_assign_role, has_permis
         ("bom dia!", Intent.GREETING),
         ("Vocês abrem sábado?", Intent.INFO),
         ("URGENTE, preciso de ajuda", Intent.HUMAN),
-        ("Quero desmarcar e agendar outro dia", Intent.CANCEL),
+        ("Quero desmarcar e agendar outro dia", Intent.SCHEDULE),  # remarcação: oferecer horários, não desmarcar
     ],
 )
 def test_classify(text, expected):

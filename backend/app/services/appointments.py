@@ -115,22 +115,31 @@ async def create_manual(
         )
     elif patient_name and not patient.name:
         await db.patient.update(where={"id": patient.id}, data={"name": patient_name.strip()})
-    appt = await db.appointment.create(
-        data={
-            "tenantId": tenant_id,
-            "patientId": patient.id,
-            "service": service_name,
-            "serviceId": svc.id if svc else None,
-            "date": date,
-            "durationMin": duration,
-            "endAt": date + timedelta(minutes=duration),
-            "status": "CONFIRMED",
-            "priceCents": price_cents,
-            "notes": notes,
-            "source": "MANUAL",
-        },
-        include={"patient": True},
-    )
+    async with db.tx() as tx:
+        await scheduling.lock_tenant_agenda(tx, tenant_id)
+        if not force:
+            # Reverifica sob a trava: outro clique/mensagem pode ter ocupado o horário entre a checagem e aqui.
+            available, reason = await scheduling.check_availability(tenant, date, duration)
+            if not available and reason != "past":
+                raise ConflictError(
+                    "Horário indisponível: acabou de ser ocupado.", code="slot_unavailable", details={"reason": reason}
+                )
+        appt = await tx.appointment.create(
+            data={
+                "tenantId": tenant_id,
+                "patientId": patient.id,
+                "service": service_name,
+                "serviceId": svc.id if svc else None,
+                "date": date,
+                "durationMin": duration,
+                "endAt": date + timedelta(minutes=duration),
+                "status": "CONFIRMED",
+                "priceCents": price_cents,
+                "notes": notes,
+                "source": "MANUAL",
+            },
+            include={"patient": True},
+        )
     await audit.record(
         action="appointment.created",
         resource_type="appointment",

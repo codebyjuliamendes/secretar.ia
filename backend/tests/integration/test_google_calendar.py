@@ -200,6 +200,12 @@ async def test_ai_created_appointment_is_synced(client, clean_db):
         headers={"X-Hub-Signature-256": sign_hub(body, "test-whatsapp-secret"), "Content-Type": "application/json"},
     )
     assert res.status_code == 200 and res.json()["intent"] == "CANCELAR"
+    # Sem IA, o pedido só avisa a equipe; o cancelamento de verdade é feito pela clínica e aí o evento some.
+    assert str((await clean_db.appointment.find_unique(where={"id": a.id})).status) == "CONFIRMED"
+    h = auth_headers(reg)
+    assert (
+        await client.post(f"/api/clinic/{tid}/appointments/{a.id}/status", headers=h, json={"status": "CANCELED"})
+    ).status_code == 200
     await _drain_jobs("sync-calendar")
     assert "console-evt-lia" not in provider.events
     assert (await clean_db.appointment.find_unique(where={"id": a.id})).externalEventId is None

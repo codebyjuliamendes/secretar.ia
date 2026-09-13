@@ -25,8 +25,24 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-_HUMAN = ("atendente", "humano", "pessoa de verdade", "falar com alguem", "reclamacao", "urgente", "ajuda")
-_CANCEL = ("cancelar", "desmarcar", "nao vou poder", "remarcar", "adiar")
+# "ajuda" NÃO entra aqui: "pode me ajudar a agendar?" é um pedido de agendamento, não de humano.
+_HUMAN = (
+    "atendente",
+    "humano",
+    "humana",
+    "pessoa de verdade",
+    "uma pessoa",
+    "falar com alguem",
+    "falar com a ",
+    "falar com o ",
+    "falar com um",
+    "alguem da clinica",
+    "reclamacao",
+    "urgente",
+)
+# Remarcar não é cancelar: vira pedido de horário (a IA/regras oferecem alternativas) e nada é desmarcado.
+_RESCHEDULE = ("remarcar", "reagendar", "adiar", "mudar o horario", "trocar o horario", "outro horario", "outro dia")
+_CANCEL = ("cancelar", "desmarcar", "nao vou poder", "nao vou conseguir")
 _SCHEDULE = ("agendar", "marcar", "horario", "consulta", "quero fazer", "aplicacao", "sessao", "vaga")
 _INFO = (
     "preco",
@@ -38,23 +54,34 @@ _INFO = (
     "abre",
     "fecha",
 )
+_PRICE_OR_HOURS = ("preco", "valor", "quanto", "custa", "custo", "horario", "abre", "fecha", "funciona", "atende")
 _GREETING = ("oi", "ola", "bom dia", "boa tarde", "boa noite", "hey", "e ai")
 
 
 def classify(text: str) -> Intent:
     t = normalize(text)
+    bare = re.sub(r"[^\w\s]", "", t).strip()
+    if not bare:  # só emoji/figurinha de texto: cumprimenta e se apresenta
+        return Intent.GREETING
     if any(k in t for k in _HUMAN):
         return Intent.HUMAN
+    if any(k in t for k in _RESCHEDULE):
+        return Intent.SCHEDULE
     if any(k in t for k in _CANCEL):
         return Intent.CANCEL
     if any(k in t for k in _INFO):
         return Intent.INFO
     if any(k in t for k in _SCHEDULE):
         return Intent.SCHEDULE
-    bare = re.sub(r"[^\w\s]", "", t).strip()
     if bare in _GREETING or any(bare.startswith(g + " ") for g in _GREETING):
         return Intent.GREETING
     return Intent.INFO
+
+
+def asks_prices_or_hours(text: str) -> bool:
+    """Dúvida que o fallback por regras consegue responder com catálogo/horários (sem inventar o resto)."""
+    t = normalize(text)
+    return any(k in t for k in _PRICE_OR_HOURS)
 
 
 def coerce_intent(value: str | None) -> Intent | None:

@@ -57,9 +57,17 @@ def client_for(settings: Settings) -> GeminiClient | None:
     )
 
 
+def size_limit(kind: str) -> int:
+    return MAX_AUDIO_BYTES if kind == "audio" else MAX_IMAGE_BYTES
+
+
 def size_ok(media: MediaInput) -> bool:
-    limit = MAX_AUDIO_BYTES if media.kind == "audio" else MAX_IMAGE_BYTES
-    return 0 < len(media.data) <= limit
+    return 0 < len(media.data) <= size_limit(media.kind)
+
+
+def too_large(media: MediaInput) -> bool:
+    """Só "grande demais" quando há bytes acima do limite; mídia vazia (download falhou) não é isso."""
+    return len(media.data) > size_limit(media.kind)
 
 
 def unsupported_reply(kind: str, *, too_large: bool = False) -> str:

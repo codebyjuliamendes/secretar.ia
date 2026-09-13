@@ -101,6 +101,29 @@ def generate_slots(
     return out
 
 
+def spread_slots(slots: list[Slot], tz: ZoneInfo, *, per_day: int = 2, limit: int = 6) -> list[Slot]:
+    """Escolhe até `per_day` horários por dia, em ordem, para a sugestão cobrir vários dias (e não só a manhã
+    do primeiro dia livre)."""
+    out: list[Slot] = []
+    per_day_count: dict[date, int] = {}
+    for s in slots:
+        d = s.start.astimezone(tz).date()
+        if per_day_count.get(d, 0) >= per_day:
+            continue
+        per_day_count[d] = per_day_count.get(d, 0) + 1
+        out.append(s)
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def lock_tenant_agenda(tx, tenant_id: str) -> None:
+    """Serializa verificações+criações de horário do tenant dentro da transação (evita reserva dupla do
+    mesmo slot por duas mensagens/cliques simultâneos). Liberado no commit."""
+    # `IS NULL` transforma o retorno void em boolean: o Prisma não desserializa colunas void.
+    await tx.query_raw("SELECT pg_advisory_xact_lock(hashtext($1)) IS NULL AS locked", f"agenda:{tenant_id}")
+
+
 def within_rules(start_utc: datetime, duration_min: int, rules: list[Rule], tz: ZoneInfo) -> bool:
     local = start_utc.astimezone(tz)
     start_m = local.hour * 60 + local.minute

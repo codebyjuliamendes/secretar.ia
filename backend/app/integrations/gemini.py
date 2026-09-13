@@ -103,7 +103,7 @@ class GeminiClient:
             raise AIProviderError(f"Gemini embeddings respondeu {resp.status_code}")
         try:
             vectors = [e["values"] for e in resp.json()["embeddings"]]
-        except (KeyError, TypeError) as exc:
+        except (KeyError, TypeError, ValueError) as exc:
             raise AIProviderError("Resposta inválida do Gemini (embeddings)") from exc
         if len(vectors) != len(texts):
             raise AIProviderError("Gemini devolveu número inesperado de embeddings")
@@ -118,7 +118,10 @@ class GeminiClient:
             raise AIProviderError(f"Gemini indisponível: {exc.__class__.__name__}") from exc
         if resp.status_code != 200:
             raise AIProviderError(f"Gemini respondeu {resp.status_code}")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise AIProviderError("Resposta do Gemini não é JSON") from exc
         try:
             text = data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError, TypeError) as exc:

@@ -48,6 +48,16 @@ registra o modo degradado. Quotas mensais por plano são verificadas antes de ch
 **Consequências.** Nenhuma funcionalidade fake em produção; custo controlado; recursos multimodais e RAG
 ficam como evolução explícita (ver pendências no relatório de entrega).
 
+**Adendo (13/set/2026) — regras do modo degradado e do pipeline.** Sem IA (ou com falha do provedor): remarcar/
+adiar vira pedido de horário (não cancelamento); pedido de cancelamento por regras, ou com mais de um
+agendamento futuro, só avisa a equipe ("Pedido de cancelamento para confirmar") — nada é desmarcado sem
+confirmação; "ajuda" deixou de forçar transbordo; dúvida que catálogo/horários não respondem gera transbordo
+com resposta honesta em vez de colar preços; só emoji cumprimenta. Sugestões de horário são espalhadas em até
+2 por dia. Horários no prompt e nas notificações são no fuso da clínica. A quota mensal conta apenas mensagens
+**atendidas pela IA** (respostas por regras e mídia recusada não contam). Criação de agendamento (IA e manual)
+roda sob `pg_advisory_xact_lock` por clínica para não reservar o mesmo horário duas vezes. Uma falha inesperada
+no pipeline solta a reivindicação da mensagem (`ProcessedMessage`) para o reenvio do provedor ser processado.
+
 ## ADR-006 — Planos e quotas aplicados no backend
 
 **Decisão.** `Plan` no tenant, limites em `app/domain/plans.py`, contadores mensais em `UsageCounter` com
