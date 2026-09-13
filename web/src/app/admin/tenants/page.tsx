@@ -269,6 +269,12 @@ function TenantDetailModal({ tenant, onClose, onChanged }: { tenant: AdminTenant
         </section>
 
         <section>
+          <h3 className="text-sm font-semibold">Indicação</h3>
+          <p className="mt-1 text-sm text-muted">Código <span className="font-mono font-medium text-foreground">{tenant.referralCode ?? "—"}</span> · indicou {tenant.referralsCount} conta(s){tenant.referredByName ? ` · indicada por ${tenant.referredByName}` : ""}. O desconto de quem indica você registra em “Cobrança” (observação).</p>
+          {tenant.groupName && <p className="mt-1 text-xs text-muted">Unidade do grupo {tenant.groupName}.</p>}
+        </section>
+
+        <section>
           <h3 className="text-sm font-semibold">Relatório mensal</h3>
           <p className="mt-1 text-xs text-muted">Vai sozinho todo início de mês para os responsáveis{tenant.lastReportPeriod ? ` (último: ${tenant.lastReportPeriod})` : ""}. Aqui você reenvia o do mês passado.</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">

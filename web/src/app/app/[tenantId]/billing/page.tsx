@@ -5,7 +5,7 @@ import { Alert, Badge, Button, Card, ErrorState, LinkButton, PageHeader, Skeleto
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
-import type { Billing, Plan } from "@/lib/types";
+import type { Billing, Plan, TenantSettings } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -44,6 +44,7 @@ export default function BillingPage() {
   const toast = useToast();
   const canManage = tenant.role === "OWNER";
   const checkoutResult = useCheckoutResult();
+  const settingsQ = useQuery(() => api.get<TenantSettings>(`clinic/${tenant.id}/settings`), [tenant.id]);
   const { data, error, refetch } = useQuery(() => api.get<Billing>(`clinic/${tenant.id}/billing`), [tenant.id]);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -132,6 +133,15 @@ export default function BillingPage() {
               <div className="mt-4"><Alert tone="info">Apenas o proprietário da clínica pode contratar ou alterar o plano.</Alert></div>
             )}
           </Card>
+          {settingsQ.data?.referralCode && (
+            <Card title="Indique e ganhe">
+              <p className="text-sm text-muted">Indique outro negócio. Quando a conta dele for liberada, você ganha um mês com desconto. Seu código: <span className="font-mono font-medium text-foreground">{settingsQ.data.referralCode}</span></p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}/register?ref=${settingsQ.data?.referralCode}`); toast.success("Link copiado."); }}>Copiar link de indicação</Button>
+                <LinkButton size="sm" href={`https://wa.me/?text=${encodeURIComponent(`Uso a Secretar.ia para atender no WhatsApp e recomendo. Cadastre com meu código ${settingsQ.data.referralCode}: ${window.location.origin}/register?ref=${settingsQ.data.referralCode}`)}`} external>Indicar pelo WhatsApp</LinkButton>
+              </div>
+            </Card>
+          )}
           <Card title={`Uso em ${data.usage.period}`}>
             <div className="space-y-4">
               <UsageBar label="Mensagens atendidas pela IA" used={data.usage.aiMessages.used} limit={data.usage.aiMessages.limit} />

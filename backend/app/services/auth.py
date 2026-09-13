@@ -98,6 +98,7 @@ async def register(
     whatsapp: str,
     user_agent: str | None,
     ip: str | None,
+    referral_code: str | None = None,
 ) -> dict:
     if (err := validate_password_policy(password)) is not None:
         raise AppError(err, code="weak_password")
@@ -108,6 +109,11 @@ async def register(
 
     email = email.strip().lower()
     password_hash = await hash_password_async(password)
+    referrer = None
+    if referral_code and referral_code.strip():
+        referrer = await db.tenant.find_unique(where={"referralCode": referral_code.strip().upper()})
+        if referrer is None:
+            raise AppError("Código de indicação não encontrado.", code="invalid_referral")
     try:
         async with db.tx() as tx:
             user = await tx.user.create(data={"email": email, "passwordHash": password_hash, "name": name.strip()})
@@ -118,6 +124,7 @@ async def register(
                     "prompt": "",  # a persona é gerada pelo tom; a clínica não precisa escrever nada
                     "status": "PENDING",  # a equipe Secretar.ia libera o plano
                     "plan": "BASIC",
+                    "referredById": referrer.id if referrer else None,
                 }
             )
             await tx.membership.create(data={"userId": user.id, "tenantId": tenant.id, "role": "OWNER"})
@@ -140,6 +147,9 @@ async def register(
         actor_user_id=user.id,
         ip=ip,
     )
+    from app.services.public_booking import ensure_public_codes
+
+    await ensure_public_codes(tenant)  # slug do link público e código de indicação
     await send_verification_email(settings, user)
     tokens = await issue_tokens(settings, user, user_agent=user_agent, ip=ip)
     return {**tokens, "user": await me(user.id)}

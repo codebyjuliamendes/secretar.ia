@@ -61,6 +61,25 @@ def rules_to_text(rules: list[Rule]) -> str:
     return "; ".join(f"{WEEKDAY_NAMES[d]} {', '.join(w)}" for d, w in by_day.items())
 
 
+def _busy_over_capacity(spans: list[tuple[datetime, datetime]], capacity: int) -> list[Busy]:
+    """Com capacidade 1, cada compromisso bloqueia. Com N profissionais, só os trechos onde N ou mais se sobrepõem."""
+    if capacity <= 1:
+        return [Busy(s, e) for s, e in spans]
+    events = sorted([(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans], key=lambda x: (x[0], x[1]))
+    out: list[Busy] = []
+    depth = 0
+    opened: datetime | None = None
+    for at, delta in events:
+        depth += delta
+        if depth >= capacity and opened is None:
+            opened = at
+        elif depth < capacity and opened is not None:
+            if at > opened:
+                out.append(Busy(opened, at))
+            opened = None
+    return out
+
+
 def overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
     return a_start < b_end and b_start < a_end
 
@@ -205,7 +224,17 @@ async def ensure_default_rules(tenant_id: str) -> None:
         )
 
 
-async def busy_between(tenant_id: str, start: datetime, end: datetime, *, exclude_id: str | None = None) -> list[Busy]:
+async def busy_between(
+    tenant_id: str,
+    start: datetime,
+    end: datetime,
+    *,
+    exclude_id: str | None = None,
+    professional_id: str | None = None,
+) -> list[Busy]:
+    """Ocupações que bloqueiam um horário. Com profissional: só os compromissos dele (e os sem profissional).
+    Sem profissional, com equipe cadastrada: um horário só fica ocupado quando TODOS os profissionais ativos
+    estão tomados (capacidade = nº de profissionais)."""
     where: dict[str, Any] = {
         "tenantId": tenant_id,
         "status": {"in": BLOCKING_STATUSES},
@@ -217,8 +246,16 @@ async def busy_between(tenant_id: str, start: datetime, end: datetime, *, exclud
     }
     if exclude_id:
         where["id"] = {"not": exclude_id}
+    if professional_id:
+        # Compromissos do profissional pedido ou sem profissional definido.
+        span_or = where.pop("OR")
+        where["AND"] = [{"OR": span_or}, {"OR": [{"professionalId": professional_id}, {"professionalId": None}]}]
     rows = await db.appointment.find_many(where=where)
-    busy = [Busy(a.date, a.endAt or a.date + timedelta(minutes=a.durationMin or DEFAULT_DURATION_MIN)) for a in rows]
+    spans = [(a.date, a.endAt or a.date + timedelta(minutes=a.durationMin or DEFAULT_DURATION_MIN)) for a in rows]
+    capacity = 1
+    if not professional_id:
+        capacity = max(1, await db.professional.count(where={"tenantId": tenant_id, "active": True}))
+    busy = _busy_over_capacity(spans, capacity)
     # Compromissos criados direto no Google Calendar da clínica também ocupam horário.
     external = await db.externalbusy.find_many(
         where={"tenantId": tenant_id, "startAt": {"lt": end}, "endAt": {"gt": start}}
@@ -234,13 +271,16 @@ async def free_slots(
     days: int = 7,
     duration_min: int = DEFAULT_DURATION_MIN,
     limit: int | None = None,
+    professional_id: str | None = None,
 ) -> list[Slot]:
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
     start_from = start_from or datetime.now(UTC)
     rules = await get_rules(tenant.id)
     if not rules:
         return []
-    busy = await busy_between(tenant.id, start_from, start_from + timedelta(days=days + 1))
+    busy = await busy_between(
+        tenant.id, start_from, start_from + timedelta(days=days + 1), professional_id=professional_id
+    )
     return generate_slots(
         rules=rules,
         busy=busy,
@@ -254,13 +294,13 @@ async def free_slots(
 
 
 async def check_availability(
-    tenant, start_utc: datetime, duration_min: int, *, exclude_id: str | None = None
+    tenant, start_utc: datetime, duration_min: int, *, exclude_id: str | None = None, professional_id: str | None = None
 ) -> tuple[bool, str | None]:
     """Retorna (disponível, motivo). Sem regras configuradas, só verifica conflitos."""
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
     # Conflito e janela vêm antes de "past": quem lança retroativo (permitido) ainda vê a sobreposição.
     end = start_utc + timedelta(minutes=duration_min)
-    if await busy_between(tenant.id, start_utc, end, exclude_id=exclude_id):
+    if await busy_between(tenant.id, start_utc, end, exclude_id=exclude_id, professional_id=professional_id):
         return False, "conflict"
     rules = await get_rules(tenant.id)
     if rules and not within_rules(start_utc, duration_min, rules, tz):

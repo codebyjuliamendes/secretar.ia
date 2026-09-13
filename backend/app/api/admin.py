@@ -57,6 +57,12 @@ async def overview():
     return await tenant_service.admin_overview()
 
 
+@router.get("/health")
+async def health():
+    """Saúde da carteira: para quem ligar hoje."""
+    return await tenant_service.admin_health()
+
+
 @router.get("/tenants")
 async def list_tenants(
     search: str | None = Query(default=None, max_length=120),

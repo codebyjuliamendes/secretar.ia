@@ -350,6 +350,11 @@ export interface AdminTenant {
   lastReportPeriod: string | null;
   hasSubscription: boolean;
   billingCycle: string;
+  referralCode: string | null;
+  referredByName: string | null;
+  referralsCount: number;
+  parentTenantId: string | null;
+  groupName: string | null;
   checklist: { plan: boolean; whatsapp: boolean; services: boolean; welcome: boolean };
 }
 
@@ -378,4 +383,25 @@ export interface UnansweredQuestion {
   count: number;
   people: number;
   lastAskedAt: string;
+}
+
+export interface HealthItem {
+  id: string;
+  name: string;
+  whatsapp: string;
+  plan: Plan;
+  days?: number;
+  used?: number;
+  limit?: number;
+  pct?: number;
+  paidUntil?: string;
+  status?: TenantStatus;
+}
+
+export interface AdminHealth {
+  noWhatsapp: HealthItem[];
+  silent: HealthItem[];
+  nearLimit: HealthItem[];
+  expiring: HealthItem[];
+  pending: HealthItem[];
 }

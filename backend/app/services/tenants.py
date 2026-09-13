@@ -114,12 +114,16 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
         SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t.niche,
                t."whatsappConnected", t."createdAt", t."hardLimit", t."paidUntil", t."paymentMethod",
                t."billingNote", t."welcomeSentAt", t."lastReportPeriod", t."subscriptionId", t."billingCycle",
+               t."referralCode", t."parentTenantId", ref.name AS "referredByName", grp.name AS "groupName",
+               (SELECT COUNT(*) FROM "Tenant" r WHERE r."referredById" = t.id) AS "referralsCount",
                COALESCE(a.cnt, 0) AS "appointmentCount", COALESCE(p.cnt, 0) AS "patientCount",
                COALESCE(m.cnt, 0) AS "memberCount", COALESCE(u.count, 0) AS "aiMessagesThisMonth",
                COALESCE(s.cnt, 0) AS "serviceCount"
         FROM "Tenant" t
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Service" WHERE active GROUP BY "tenantId") s
                ON s."tenantId" = t.id
+        LEFT JOIN "Tenant" ref ON ref.id = t."referredById"
+        LEFT JOIN "Tenant" grp ON grp.id = t."parentTenantId"
         LEFT JOIN "UsageCounter" u ON u."tenantId" = t.id AND u.metric = 'ai_messages'
                                    AND u.period = to_char(NOW(), 'YYYY-MM')
         LEFT JOIN (SELECT "tenantId", COUNT(*) cnt FROM "Appointment" GROUP BY "tenantId") a ON a."tenantId" = t.id
@@ -158,6 +162,11 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
                 "paymentMethod": r.get("paymentMethod") or "",
                 "billingNote": r.get("billingNote"),
                 "billingCycle": r.get("billingCycle") or "MONTHLY",
+                "referralCode": r.get("referralCode"),
+                "referredByName": r.get("referredByName"),
+                "referralsCount": int(r.get("referralsCount") or 0),
+                "parentTenantId": r.get("parentTenantId"),
+                "groupName": r.get("groupName"),
                 "welcomeSentAt": _iso(r.get("welcomeSentAt")),
                 "lastReportPeriod": r.get("lastReportPeriod"),
                 "hasSubscription": bool(r.get("subscriptionId")),
@@ -165,6 +174,63 @@ async def admin_list_tenants(*, search: str | None, status: str | None, limit: i
             }
         )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+async def admin_health() -> dict:
+    """Para quem ligar hoje: contas que não engatam, que sumiram, que estão perto do limite ou vencendo."""
+    rows = await db.query_raw(
+        """
+        WITH usage AS (
+          SELECT "tenantId", count FROM "UsageCounter"
+          WHERE metric = 'ai_messages' AND period = to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM')
+        ), recent AS (
+          SELECT "tenantId", COUNT(*) cnt FROM "ExecutionLog"
+          WHERE "createdAt" >= NOW() - INTERVAL '7 days' GROUP BY "tenantId"
+        )
+        SELECT t.id, t.name, t.whatsapp, t.status::text AS status, t.plan::text AS plan, t."whatsappConnected",
+               t."createdAt", t."paidUntil", t."subscriptionId", t."updatedAt",
+               COALESCE(u.count, 0) AS used, COALESCE(r.cnt, 0) AS recent_msgs
+        FROM "Tenant" t
+        LEFT JOIN usage u ON u."tenantId" = t.id
+        LEFT JOIN recent r ON r."tenantId" = t.id
+        WHERE t.status IN ('ACTIVE', 'PENDING', 'PAST_DUE')
+        """
+    )
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    out: dict[str, list[dict]] = {"noWhatsapp": [], "silent": [], "nearLimit": [], "expiring": [], "pending": []}
+
+    def item(r, **extra):
+        return {"id": r["id"], "name": r["name"], "whatsapp": r["whatsapp"], "plan": r["plan"], **extra}
+
+    def as_dt(v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+    for r in rows:
+        created = as_dt(r["createdAt"])
+        age_days = (now - created).days if created else 0
+        if r["status"] == "PENDING":
+            out["pending"].append(item(r, days=age_days))
+            continue
+        if r["status"] == "ACTIVE" and not r["whatsappConnected"] and age_days >= 3:
+            out["noWhatsapp"].append(item(r, days=age_days))
+        if r["status"] == "ACTIVE" and r["whatsappConnected"] and int(r["recent_msgs"] or 0) == 0 and age_days >= 7:
+            out["silent"].append(item(r, days=7))
+        limit = limits_for(r["plan"]).ai_messages_per_month
+        used = int(r["used"] or 0)
+        if limit > 0 and used >= int(limit * 0.8):
+            out["nearLimit"].append(item(r, used=used, limit=limit, pct=round(used * 100 / limit)))
+        paid = as_dt(r["paidUntil"])
+        if paid is not None and not r["subscriptionId"] and paid <= now + timedelta(days=7):
+            out["expiring"].append(item(r, paidUntil=_iso(paid), days=(paid - now).days, status=r["status"]))
+    for key in out:
+        out[key].sort(key=lambda x: -x.get("days", 0) if key != "expiring" else x.get("days", 0))
+    return out
 
 
 def _iso(v) -> str | None:
@@ -230,6 +296,9 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
     from app.services.scheduling import ensure_default_rules
 
     await ensure_default_rules(tenant.id)  # mesmas janelas padrão do cadastro (seg–sex 09–18)
+    from app.services.public_booking import ensure_public_codes
+
+    await ensure_public_codes(tenant)  # slug do link público e código de indicação
     await audit.record(
         action="admin.tenant_created",
         resource_type="tenant",

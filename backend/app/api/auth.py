@@ -39,6 +39,7 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     clinicName: str = Field(min_length=2, max_length=120)
     whatsapp: str = Field(min_length=8, max_length=32)
+    referralCode: str | None = Field(default=None, max_length=12)  # indique e ganhe
 
 
 class LoginIn(BaseModel):
@@ -125,6 +126,7 @@ async def register(
         password=data.password,
         clinic_name=data.clinicName,
         whatsapp=data.whatsapp,
+        referral_code=data.referralCode,
         user_agent=user_agent,
         ip=ip,
     )

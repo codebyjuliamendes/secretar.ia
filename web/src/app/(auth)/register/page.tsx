@@ -1,16 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { Alert, Button, Field, Input } from "@/components/ui/primitives";
 
-const initial = { name: "", email: "", password: "", clinicName: "", whatsapp: "" };
+const initial = { name: "", email: "", password: "", clinicName: "", whatsapp: "", referralCode: "" };
 
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const router = useRouter();
-  const [form, setForm] = useState(initial);
+  const params = useSearchParams();
+  // ?ref=CODIGO vem do link "indique e ganhe"; entra no estado inicial, sem efeito.
+  const [form, setForm] = useState(() => ({ ...initial, referralCode: (params.get("ref") ?? "").toUpperCase() }));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +45,7 @@ export default function RegisterPage() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await api.post("auth/register", form);
+      await api.post("auth/register", { ...form, referralCode: form.referralCode.trim() || null });
       router.replace("/app?welcome=1");
     } catch (err) {
       if (err instanceof ApiError && err.details?.length) {
@@ -66,6 +76,9 @@ export default function RegisterPage() {
         </Field>
         <Field label="WhatsApp da clínica" htmlFor="whatsapp" required error={fieldErrors.whatsapp} hint="Número que os pacientes usam para falar com a clínica.">
           <Input id="whatsapp" inputMode="tel" placeholder="(81) 99999-8888" value={form.whatsapp} onChange={set("whatsapp")} />
+        </Field>
+        <Field label="Código de indicação" htmlFor="referralCode" error={fieldErrors.referralCode} hint="Opcional. Se alguém te indicou, o código dá um mês com desconto para quem indicou.">
+          <Input id="referralCode" value={form.referralCode} onChange={set("referralCode")} placeholder="ABC123" className="uppercase" />
         </Field>
         {error && <Alert tone="danger">{error}</Alert>}
         <Button type="submit" className="w-full" loading={loading}>
