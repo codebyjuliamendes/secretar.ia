@@ -395,6 +395,9 @@ model KnowledgeChunk {
 
   @@index([tenantId])
   @@index([documentId])
+  // Declarado aqui para o diff schema/migrations fechar; a migration cria este índice como HNSW
+  // (vector_cosine_ops), que o Prisma não sabe expressar. Não recrie com `migrate dev` como btree.
+  @@index([embedding])
 }
 
 // Conexão OAuth da clínica com um calendário externo (Google). Tokens cifrados (Fernet) em repouso.

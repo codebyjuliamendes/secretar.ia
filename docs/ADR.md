@@ -127,9 +127,15 @@ busca à parte). A cada mensagem, os 4 trechos mais próximos (cosseno) entram n
 com instrução de usá-los como única fonte para dúvidas e de encaminhar à equipe o que não estiver ali. Sem
 chave de IA ou em falha de embedding, os trechos ficam sem vetor e a recuperação usa `to_tsvector('portuguese')`
 com termos em OR ranqueados por `ts_rank`; a resposta por regras também cita o melhor trecho. A coluna é
-`Unsupported` no Prisma: escrita e busca via SQL bruto em `services/knowledge.py`. Sem índice HNSW/IVFFlat
-por ora: o volume por clínica é pequeno e o filtro por `tenantId` vem antes; um índice fora do datamodel
-quebraria a verificação de drift do CI.
+`Unsupported` no Prisma: escrita e busca via SQL bruto em `services/knowledge.py`.
+**Adendo (12/set/2026) — índice HNSW.** A migration `20260912100000_knowledge_hnsw` cria
+`KnowledgeChunk_embedding_idx` como `USING hnsw (embedding vector_cosine_ops)`. O schema declara o mesmo
+índice como `@@index([embedding])`: o Prisma não expressa HNSW, mas não compara o algoritmo no diff, então a
+verificação de drift do CI fecha (verificado localmente). Como o filtro por `tenantId` é aplicado depois da
+vizinhança aproximada, a busca roda com `SET LOCAL hnsw.iterative_scan = relaxed_order` (pgvector ≥ 0.8)
+dentro de uma transação, para que clínicas pequenas em uma tabela grande não recebam resultado vazio; se o
+servidor não conhecer o parâmetro, a consulta simples é usada. Nunca recriar o índice via `migrate dev`
+(sairia btree e falharia: 768 dims excedem a entrada máxima do btree).
 **Consequências.** Postgres precisa da extensão `vector` (imagem `pgvector/pgvector:pg16` no compose e no CI;
 Neon/Supabase já oferecem). Reindexação manual disponível para quando a chave de IA for configurada depois.
 Ingestão de PDF/URL e sugestão automática de documentos ficam como evolução.

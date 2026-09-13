@@ -219,18 +219,7 @@ async def retrieve(settings: Settings, tenant_id: str, query: str, *, limit: int
     rows: list[dict] = []
     (qvec,) = await _embed(settings, [query[:2000]], task_type="RETRIEVAL_QUERY")
     if qvec is not None:
-        rows = await db.query_raw(
-            """
-            SELECT d.title, c.content, 1 - (c.embedding <=> $2::vector) AS score
-            FROM "KnowledgeChunk" c JOIN "KnowledgeDocument" d ON d.id = c."documentId"
-            WHERE c."tenantId" = $1 AND c.embedding IS NOT NULL
-            ORDER BY c.embedding <=> $2::vector
-            LIMIT $3
-            """,
-            tenant_id,
-            _vector_literal(qvec),
-            limit,
-        )
+        rows = await _vector_search(tenant_id, qvec, limit)
     if not rows and (tsq := _fts_query(query)):
         rows = await db.query_raw(
             """
@@ -246,6 +235,33 @@ async def retrieve(settings: Settings, tenant_id: str, query: str, *, limit: int
             limit,
         )
     return [Snippet(title=r["title"], content=r["content"], score=float(r["score"] or 0)) for r in rows]
+
+
+VECTOR_SEARCH_SQL = """
+    SELECT d.title, c.content, 1 - (c.embedding <=> $2::vector) AS score
+    FROM "KnowledgeChunk" c JOIN "KnowledgeDocument" d ON d.id = c."documentId"
+    WHERE c."tenantId" = $1 AND c.embedding IS NOT NULL
+    ORDER BY c.embedding <=> $2::vector
+    LIMIT $3
+"""
+
+
+async def _vector_search(tenant_id: str, qvec: list[float], limit: int) -> list[dict]:
+    """Busca por cosseno usando o índice HNSW (`KnowledgeChunk_embedding_idx`).
+
+    O filtro por tenant é aplicado DEPOIS da vizinhança aproximada; com muitas clínicas, os `ef_search`
+    vizinhos mais próximos podem não conter nenhum trecho desta clínica e a busca voltaria vazia. A varredura
+    iterativa do pgvector (>= 0.8) continua percorrendo o grafo até preencher o LIMIT, e `SET LOCAL` limita o
+    ajuste à transação. Se o servidor não conhecer o parâmetro, cai na consulta simples.
+    """
+    params = (tenant_id, _vector_literal(qvec), limit)
+    try:
+        async with db.tx() as tx:
+            await tx.execute_raw("SET LOCAL hnsw.iterative_scan = relaxed_order")
+            return await tx.query_raw(VECTOR_SEARCH_SQL, *params)
+    except Exception as exc:  # noqa: BLE001 - pgvector antigo sem iterative_scan
+        log.warning("vector_search_iterative_unavailable", error=str(exc)[:200])
+        return await db.query_raw(VECTOR_SEARCH_SQL, *params)
 
 
 def snippets_to_text(snippets: list[Snippet], *, max_chars: int = 3500) -> str | None:

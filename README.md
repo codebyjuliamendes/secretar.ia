@@ -198,7 +198,7 @@ falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de age
 | Gemini | `integrations/gemini.py`, `services/ai.py`, `services/media.py` | JSON com schema, timeout, limite de tokens, instruções anti-injeção, fallback por regras; áudio (transcrição) e imagem (descrição) do paciente via entrada multimodal |
 | Stripe | `integrations/stripe.py`, `api/webhooks.py`, `services/billing.py` | Checkout Session e Customer Portal via REST (proprietário assina/gerencia na tela Plano & uso); eventos de assinatura/fatura/checkout → status e plano do tenant (`client_reference_id` e metadata `tenantId`/`plan`) |
 | Google Calendar | `integrations/google_calendar.py`, `services/calendar_sync.py`, `api/integrations.py` | OAuth por clínica (state assinado, refresh token cifrado); cada criação/remarcação/confirmação/cancelamento enfileira `sync-calendar`, que cria/atualiza/apaga o evento e guarda `externalEventId`; credencial inválida desliga a sincronização e avisa na inbox |
-| Base de conhecimento (RAG) | `services/knowledge.py` | documentos livres da clínica → trechos → embeddings Gemini em pgvector (768 dims); recuperação vetorial com fallback para texto completo em português; trechos entram no prompt como fonte de verdade |
+| Base de conhecimento (RAG) | `services/knowledge.py` | documentos livres da clínica → trechos → embeddings Gemini em pgvector (768 dims, índice HNSW por cosseno com varredura iterativa); recuperação vetorial com fallback para texto completo em português; trechos entram no prompt como fonte de verdade |
 | SMTP | `integrations/email.py` | verificação, reset de senha e convites via fila |
 
 Configuração do webhook na Evolution: `POST {PUBLIC_API_URL}/api/webhooks/evolution/{EVOLUTION_WEBHOOK_TOKEN}`

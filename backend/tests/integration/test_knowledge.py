@@ -141,3 +141,52 @@ def test_system_prompt_includes_knowledge_block():
     assert "confirmar com a equipe" in with_kb
     without = build_system_prompt(tenant, now_local=datetime.now(UTC), upcoming=[])
     assert "Base de conhecimento" not in without
+
+
+class FakeEmbedder:
+    """Embeddings determinísticos por assunto: permitem exercitar a busca vetorial sem rede."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def embed(self, texts, *, model, task_type, dims):
+        self.calls.append(task_type)
+        out = []
+        for t in texts:
+            low = t.lower()
+            axis = 0 if "cartão" in low or "pagamento" in low else 1 if "peeling" in low else 2
+            vec = [0.0] * dims
+            vec[axis] = 1.0
+            vec[3] = 0.1  # evita vetores idênticos entre eixos diferentes virarem NaN no cosseno
+            out.append(vec)
+        return out
+
+
+async def test_vector_retrieval_uses_hnsw_index_and_ranks_by_cosine(client, clean_db, monkeypatch):
+    fake = FakeEmbedder()
+    monkeypatch.setattr(knowledge, "embedding_client", lambda settings: fake)
+    idx = await clean_db.query_raw(
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'KnowledgeChunk' "
+        "AND indexname = 'KnowledgeChunk_embedding_idx'"
+    )
+    assert idx and "USING hnsw" in idx[0]["indexdef"] and "vector_cosine_ops" in idx[0]["indexdef"]
+
+    reg = await register_user(client)
+    tid, h = reg["tenantId"], auth_headers(reg)
+    d1 = await client.post(
+        f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Pagamento e cancelamento", "content": DOC_PAGAMENTO}
+    )
+    d2 = await client.post(
+        f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Preparo peeling", "content": DOC_PREPARO}
+    )
+    assert d1.json()["embedded"] is True and d2.json()["embedded"] is True
+    assert await clean_db.query_raw('SELECT count(*) AS n FROM "KnowledgeChunk" WHERE embedding IS NULL') == [{"n": 0}]
+
+    hits = await knowledge.retrieve(get_settings(), tid, "posso pagar no cartão?")
+    assert hits and hits[0].title == "Pagamento e cancelamento" and hits[0].score > 0.99
+    hits = await knowledge.retrieve(get_settings(), tid, "como me preparo para o peeling")
+    assert hits and hits[0].title == "Preparo peeling"
+    assert fake.calls[-1] == "RETRIEVAL_QUERY"
+    # Outro tenant com base própria não vaza: o filtro por tenant vale também na busca vetorial.
+    other = await register_user(client)
+    assert await knowledge.retrieve(get_settings(), other["tenantId"], "cartão") == []
