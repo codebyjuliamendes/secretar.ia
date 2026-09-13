@@ -46,7 +46,7 @@ export default function Home() {
           confirma os agendamentos e assume quando o paciente pedir.
         </p>
         <div className="mt-8 flex justify-center gap-3">
-          <LinkButton href="/register">Criar conta gratuita</LinkButton>
+          <LinkButton href="/register">Criar conta</LinkButton>
           <LinkButton href="/login" variant="secondary">
             Já tenho conta
           </LinkButton>

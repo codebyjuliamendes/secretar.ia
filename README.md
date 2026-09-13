@@ -135,7 +135,7 @@ Backend (`backend/.env.example`):
 | `EVOLUTION_API_URL` / `EVOLUTION_API_KEY` / `EVOLUTION_WEBHOOK_TOKEN` | para WhatsApp real | Evolution API |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_EMBEDDING_MODEL` | para IA real | Google Gemini (respostas, áudio/imagem e embeddings da base de conhecimento) |
 | `STRIPE_WEBHOOK_SECRET` | para billing | assinatura dos webhooks Stripe |
-| `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` | para checkout | chave secreta e price ids recorrentes; sem chave em development o checkout usa o provider console |
+| `STRIPE_SECRET_KEY` / `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_PREMIUM` | para checkout | chave secreta e price ids recorrentes (Essencial, Profissional, Premium); sem chave em development o checkout usa o provider console |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | para Google Calendar | OAuth por clínica; redirect URI `{PUBLIC_API_URL}/api/integrations/google/callback`; sem credenciais em development usa provider console |
 | `GOOGLE_PUSH_ENABLED` | não (padrão `true`) | notificações push do Google Calendar em `{PUBLIC_API_URL}/api/integrations/google/notify`; só têm efeito com `PUBLIC_API_URL` em https (o polling a cada 10 min continua de qualquer forma) |
 | `TOKEN_ENCRYPTION_KEY` | em produção com integrações OAuth | chave Fernet que cifra refresh tokens no banco (`uv run python -m app.cli gen-key`) |
@@ -174,8 +174,9 @@ reset de senha, **isolamento entre tenants (leitura, escrita e IDOR)**, RBAC por
 SUPER_ADMIN validado no banco, webhooks (assinatura obrigatória, idempotência por tenant, bloqueio por
 status/quota), Evolution (token + instância), Stripe (assinatura, idempotência, status), fila (claim atômico,
 falha permanente, recuperação de jobs presos), campanha de upsell, CRUD de agenda/pacientes, limites de plano e
-recursos de plano (áudio/imagem e base de conhecimento: FREE não inclui, BASIC/PRO/ENTERPRISE incluem com limite
-de documentos; sem trial, a clínica nasce ATIVA no FREE e o admin libera o plano).
+planos pagos (Essencial R$ 750, Profissional R$ 1.000, Premium R$ 1.500, Enterprise a partir de R$ 2.000; todos
+com áudio/imagem e base de conhecimento, variando volume), clínica nova PENDING até o admin liberar o plano, e
+persona da assistente gerada pelo tom (sem prompt para o cliente escrever).
 
 ## Segurança e multi-tenancy
 

@@ -107,7 +107,7 @@ export function AppShell({
         )}
         <div className="mt-2 flex flex-wrap gap-1">
           <Badge tone={STATUS_TONE[tenant.status]}>{STATUS_LABEL[tenant.status]}</Badge>
-          <Badge tone="primary">{PLAN_LABEL[tenant.plan]}</Badge>
+          {tenant.status !== "PENDING" && <Badge tone="primary">{PLAN_LABEL[tenant.plan]}</Badge>}
         </div>
       </div>
       <ul className="flex-1 space-y-0.5 p-3">
@@ -185,6 +185,13 @@ export function AppShell({
                 <button onClick={resend} disabled={resending} className="font-medium underline">
                   {resending ? "Enviando…" : "Reenviar e-mail"}
                 </button>
+              </Alert>
+            )}
+            {tenant.status === "PENDING" && (
+              <Alert tone="info" title="Conta aguardando liberação">
+                A equipe Secretar.ia vai liberar o plano da clínica em breve. Enquanto isso você já pode conectar o WhatsApp,
+                cadastrar serviços e horários e testar a base de conhecimento. O atendimento automático aos pacientes começa
+                assim que o plano for liberado.
               </Alert>
             )}
             {tenant.status === "PAST_DUE" && (

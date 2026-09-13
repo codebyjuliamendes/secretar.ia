@@ -19,7 +19,7 @@ export default function AdminOverviewPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile label="MRR (planos ativos)" value={brl(data.mrrCents)} hint="soma dos preços de tabela das clínicas ativas" tone="primary" />
-          <StatTile label="Clínicas ativas" value={data.tenants.active} hint={`${data.tenants.free} no plano gratuito · ${data.tenants.total} no total`} />
+          <StatTile label="Clínicas ativas" value={data.tenants.active} hint={`${data.tenants.pending} aguardando liberação · ${data.tenants.total} no total`} />
           <StatTile label="Pagamento pendente" value={data.tenants.pastDue} hint={`${data.tenants.inactive} canceladas/suspensas`} />
           <StatTile label="Mensagens de IA no mês" value={data.aiMessagesThisMonth.toLocaleString("pt-BR")} hint={data.failedJobs ? <Link href="/admin/jobs?status=FAILED" className="text-danger hover:underline">{data.failedJobs} tarefas falharam</Link> : "fila saudável"} />
         </div>

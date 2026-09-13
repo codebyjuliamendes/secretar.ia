@@ -53,7 +53,8 @@ async def tenant_summary(ctx: TenantContext = Depends(tenant_context)):
 
 class SettingsUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
-    prompt: str | None = Field(default=None, min_length=10, max_length=4000)
+    prompt: str | None = Field(default=None, max_length=4000)  # instruções extras; vazio = só a persona padrão
+    tone: Literal["acolhedor", "objetivo", "formal"] | None = None
     prices: str | None = Field(default=None, max_length=4000)
     businessHours: str | None = Field(default=None, max_length=300)
     timezone: str | None = Field(default=None, max_length=64)
@@ -97,7 +98,7 @@ async def billing(
 
 
 class CheckoutIn(BaseModel):
-    plan: Literal["BASIC", "PRO"]
+    plan: Literal["BASIC", "PRO", "PREMIUM"]
 
 
 @router.post("/billing/checkout")

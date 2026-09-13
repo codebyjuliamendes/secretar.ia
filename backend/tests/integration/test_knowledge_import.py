@@ -225,18 +225,6 @@ async def test_long_url_is_split_and_quota_is_checked_before_writing(client, cle
     assert await clean_db.knowledgedocument.count(where={"tenantId": tid}) >= before
 
 
-async def test_import_requires_plan_with_knowledge_base(client, clean_db, offline_web):
-    tid, h = await _paid_tenant(client, clean_db, plan="FREE")
-    res = await client.post(
-        f"/api/clinic/{tid}/knowledge/import-url", headers=h, json={"url": "https://clinica.example/faq"}
-    )
-    assert res.status_code == 402 and res.json()["error"]["code"] == "plan_feature_locked"
-    up = await client.post(
-        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("a.pdf", make_pdf("x"), "application/pdf")}
-    )
-    assert up.status_code == 402
-
-
 def scanned_page_jpeg() -> bytes:
     from PIL import Image, ImageDraw
 

@@ -5,7 +5,8 @@ import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, KnowledgeSource, TenantSettings, WhatsAppStatus } from "@/lib/types";
+import { TONE_LABEL } from "@/lib/format";
+import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, KnowledgeSource, TenantSettings, Tone, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -35,7 +36,7 @@ export default function SettingsPage() {
             <GoogleCalendarCard canManage={canManage} />
             <Card title="Como a IA usa estas informações">
               <ul className="list-disc space-y-1 pl-4 text-sm text-muted">
-                <li>O prompt define a personalidade e as regras da clínica.</li>
+                <li>O tom define a personalidade; as regras já vêm prontas e a IA nunca inventa preços nem horários.</li>
                 <li>Serviços e preços são a única fonte de valores; a IA não inventa preços.</li>
                 <li>A base de conhecimento responde dúvidas sobre preparo, políticas e pagamento; fora dela, a IA encaminha à equipe.</li>
                 <li>Pedidos de agendamento ficam pendentes até a confirmação da equipe.</li>
@@ -53,7 +54,8 @@ export default function SettingsPage() {
 function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSettings; canManage: boolean; onSaved: () => Promise<void> | void }) {
   const { tenant } = useTenant();
   const toast = useToast();
-  const [form, setForm] = useState({ name: settings.name, prompt: settings.prompt, prices: settings.prices ?? "", businessHours: settings.businessHours ?? "", timezone: settings.timezone });
+  const [form, setForm] = useState({ name: settings.name, tone: settings.tone, prompt: settings.prompt, prices: settings.prices ?? "", businessHours: settings.businessHours ?? "", timezone: settings.timezone });
+  const [showExtra, setShowExtra] = useState(Boolean(settings.prompt));
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -76,9 +78,25 @@ function AssistantForm({ settings, canManage, onSaved }: { settings: TenantSetti
     <Card title="Assistente virtual">
       <fieldset disabled={!canManage} className="space-y-4">
         <Field label="Nome da clínica" htmlFor="name" required error={fieldErrors.name}><Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-        <Field label="Prompt (personalidade e regras)" htmlFor="prompt" required error={fieldErrors.prompt} hint="Mínimo de 10 caracteres. Ex.: tom de voz, o que pode e não pode prometer.">
-          <Textarea id="prompt" rows={5} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
-        </Field>
+        <Alert tone="info">A assistente já vem pronta: cumprimenta, informa serviços e horários, oferece agendamento e chama a equipe quando precisa. Você só escolhe o tom.</Alert>
+        <fieldset>
+          <legend className="mb-2 text-sm font-medium">Tom da assistente</legend>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {(Object.keys(TONE_LABEL) as Tone[]).map((t) => (
+              <label key={t} className={`flex cursor-pointer flex-col rounded-lg border p-3 text-sm ${form.tone === t ? "border-primary bg-primary-soft" : "border-border"}`}>
+                <span className="flex items-center gap-2 font-medium"><input type="radio" name="tone" value={t} checked={form.tone === t} onChange={() => setForm({ ...form, tone: t })} />{TONE_LABEL[t].label}</span>
+                <span className="mt-1 text-xs text-muted">{TONE_LABEL[t].hint}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {showExtra ? (
+          <Field label="Instruções extras (opcional)" htmlFor="prompt" error={fieldErrors.prompt} hint="Só se quiser algo além do padrão. Ex.: “não prometa desconto”, “convênios: Unimed e Bradesco”.">
+            <Textarea id="prompt" rows={3} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
+          </Field>
+        ) : (
+          <button type="button" className="text-sm text-primary hover:underline" onClick={() => setShowExtra(true)}>Adicionar instruções extras (opcional)</button>
+        )}
         <Field label="Informações extras para a IA" htmlFor="prices" hint="Opcional. O catálogo de serviços abaixo preenche este campo automaticamente; use para detalhes como formas de pagamento ou endereço." error={fieldErrors.prices}>
           <Textarea id="prices" rows={4} value={form.prices} onChange={(e) => setForm({ ...form, prices: e.target.value })} />
         </Field>

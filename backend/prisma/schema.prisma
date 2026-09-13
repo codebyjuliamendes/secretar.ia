@@ -25,6 +25,7 @@ enum TenantRole {
 }
 
 enum TenantStatus {
+  PENDING
   ACTIVE
   PAST_DUE
   CANCELED
@@ -32,9 +33,9 @@ enum TenantStatus {
 }
 
 enum Plan {
-  FREE
   BASIC
   PRO
+  PREMIUM
   ENTERPRISE
 }
 
@@ -142,12 +143,13 @@ model Tenant {
   whatsapp          String       @unique
   whatsappInstance  String?      @unique
   whatsappConnected Boolean      @default(false)
-  prompt            String
+  prompt            String       @default("") // instruções extras opcionais; a persona é gerada pelo tom
+  tone              String       @default("acolhedor") // acolhedor | objetivo | formal
   prices            String?
   businessHours     String?
   timezone          String       @default("America/Sao_Paulo")
-  status            TenantStatus @default(ACTIVE)
-  plan              Plan         @default(FREE)
+  status            TenantStatus @default(PENDING) // nasce aguardando liberação do plano pela equipe
+  plan              Plan         @default(BASIC)
   subscriptionId    String?      @unique
   customerId        String?
   upsellEnabled     Boolean      @default(false)

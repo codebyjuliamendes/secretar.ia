@@ -196,11 +196,15 @@ async def _mark_processed(event_id: str) -> None:
 
 # ------------------------------ Checkout e portal ------------------------------
 
-PURCHASABLE_PLANS = (Plan.BASIC, Plan.PRO)
+PURCHASABLE_PLANS = (Plan.BASIC, Plan.PRO, Plan.PREMIUM)
 
 
 def price_id_for(settings: Settings, plan: Plan) -> str:
-    return {Plan.BASIC: settings.stripe_price_basic, Plan.PRO: settings.stripe_price_pro}.get(plan, "")
+    return {
+        Plan.BASIC: settings.stripe_price_basic,
+        Plan.PRO: settings.stripe_price_pro,
+        Plan.PREMIUM: settings.stripe_price_premium,
+    }.get(plan, "")
 
 
 def checkout_enabled(settings: Settings) -> bool:

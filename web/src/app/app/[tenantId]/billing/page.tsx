@@ -87,7 +87,7 @@ export default function BillingPage() {
             <dl className="grid gap-4 text-sm sm:grid-cols-3">
               <div><dt className="text-muted">Plano atual</dt><dd className="font-medium">{PLAN_LABEL[data.plan]}</dd></div>
               <div><dt className="text-muted">Período</dt><dd className="font-medium">{data.usage.period}</dd></div>
-              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : data.plan === "FREE" ? "Não iniciada" : "Liberada pela equipe"}</dd></div>
+              <div><dt className="text-muted">Assinatura</dt><dd className="font-medium">{data.subscriptionId ? "Ativa no gateway" : data.status === "PENDING" ? "Aguardando liberação" : "Liberada pela equipe"}</dd></div>
             </dl>
             {data.status === "PAST_DUE" && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -118,18 +118,18 @@ export default function BillingPage() {
             {data.plans.map((p) => {
               const current = p.plan === data.plan;
               const purchasable = data.purchasablePlans.includes(p.plan);
-              const showAction = canManage && data.checkoutEnabled && !current && (purchasable || (hasSubscription && p.plan !== "FREE"));
+              const showAction = canManage && data.checkoutEnabled && !current && (purchasable || hasSubscription);
               return (
                 <div key={p.plan} className={cx("flex flex-col rounded-xl border bg-surface p-5", current ? "border-primary" : "border-border")}>
                   <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{current && <Badge tone="primary">atual</Badge>}</div>
-                  <p className="mt-2 text-2xl font-semibold">{p.priceCentsMonth ? brl(p.priceCentsMonth) : p.plan === "FREE" ? "R$ 0" : "Sob consulta"}<span className="text-sm font-normal text-muted">/mês</span></p>
+                  <p className="mt-2 text-2xl font-semibold">{p.priceFrom && <span className="text-sm font-normal text-muted">a partir de </span>}{brl(p.priceCentsMonth)}<span className="text-sm font-normal text-muted">/mês</span></p>
                   <ul className="mt-3 space-y-1 text-sm text-muted">
                     <li>{limitLabel(p.aiMessagesPerMonth)} mensagens de IA/mês</li>
                     <li>{limitLabel(p.maxPatients)} pacientes</li>
                     <li>{limitLabel(p.maxMembers)} membros</li>
                     <li>{p.upsellCampaigns ? "Campanha de retorno" : "Sem campanha de retorno"}</li>
-                    <li>{p.mediaUnderstanding ? "Lê áudio e imagem do paciente" : "Só mensagens de texto"}</li>
-                    <li>{p.knowledgeBase ? `Base de conhecimento (${limitLabel(p.maxKnowledgeDocuments)} documentos)` : "Sem base de conhecimento"}</li>
+                    <li>Lê áudio e imagem do paciente</li>
+                    <li>Base de conhecimento ({limitLabel(p.maxKnowledgeDocuments)} documentos)</li>
                   </ul>
                   {showAction && (
                     <div className="mt-4 pt-1">

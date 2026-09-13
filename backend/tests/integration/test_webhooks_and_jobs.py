@@ -76,11 +76,11 @@ async def test_whatsapp_webhook_blocked_when_tenant_not_operational_or_over_quot
     assert res.json()["status"] == "blocked" and res.json()["reason"] == "tenant_past_due"
     assert await clean_db.job.count(where={"name": "send-whatsapp"}) == 0
 
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "FREE"})
+    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "BASIC"})
     from app.services.usage import AI_MESSAGES, current_period
 
     await clean_db.usagecounter.create(
-        data={"tenantId": tid, "period": current_period(), "metric": AI_MESSAGES, "count": 200}
+        data={"tenantId": tid, "period": current_period(), "metric": AI_MESSAGES, "count": 1500}
     )
     body, headers = signed({"messageId": "b2", "phone": "5581999990001", "text": "oi", "tenantId": tid})
     res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
@@ -165,7 +165,7 @@ async def test_billing_webhook_signature_idempotency_and_status(client, clean_db
     )
     assert res2.json()["status"] == "PAST_DUE"
     billing = await client.get(f"/api/clinic/{tid}/billing", headers=auth_headers(reg))
-    assert billing.json()["status"] == "PAST_DUE" and billing.json()["usage"]["aiMessages"]["limit"] == 10000
+    assert billing.json()["status"] == "PAST_DUE" and billing.json()["usage"]["aiMessages"]["limit"] == 4000
 
 
 async def test_queue_claim_is_atomic_and_backoff_recovers(client, clean_db):
@@ -231,7 +231,3 @@ async def test_upsell_campaign_targets_and_idempotency(client, clean_db):
     assert r2["messagesQueued"] == 0  # já disparado para este agendamento
     job = await clean_db.job.find_first(where={"name": "send-whatsapp"})
     assert "Carla" in job.payload["text"]
-    # Plano FREE não tem upsell: flag não pode ser ligada via settings.
-    await clean_db.tenant.update(where={"id": tid}, data={"plan": "FREE", "upsellEnabled": False})
-    res = await client.patch(f"/api/clinic/{tid}/settings", headers=auth_headers(reg), json={"upsellEnabled": True})
-    assert res.status_code == 409 and res.json()["error"]["code"] == "plan_feature_locked"

@@ -14,7 +14,7 @@ async def test_checkout_flow_console_provider_and_webhook_activation(client, cle
 
     overview = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
     assert overview["checkoutEnabled"] is True and overview["hasCustomer"] is False
-    assert overview["purchasablePlans"] == ["BASIC", "PRO"]
+    assert overview["purchasablePlans"] == ["BASIC", "PRO", "PREMIUM"]
 
     # Plano não contratável online.
     bad = await client.post(f"/api/clinic/{tid}/billing/checkout", headers=h, json={"plan": "FREE"})

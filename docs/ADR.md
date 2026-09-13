@@ -265,3 +265,25 @@ reenviar/cancelar. O BFF trata o aceite como rota de autenticação (tokens vira
 **Consequências.** Fecha o vazamento e a adição sem consentimento; um passo a mais para quem aceita (clicar
 no link). Migration cria a tabela; o fluxo antigo por `reset-password?welcome=1` deixa de existir.
 
+## ADR-018 — Sem plano gratuito: quatro faixas pagas, clínica nasce "aguardando liberação", persona gerada
+
+**Contexto.** Decisões de produto da Julia (13/set/2026): (1) não há plano gratuito; os valores para clínicas são
+R$ 750, 1.000, 1.500 e a partir de 2.000; (2) o cliente não deve precisar escrever nem ajustar prompt — a
+assistente tem de funcionar sem exigir nada dele.
+**Decisão.**
+- `Plan` = BASIC "Essencial" (R$ 750: 1.500 msgs/mês, 1.000 pacientes, 3 membros, 10 documentos), PRO
+  "Profissional" (R$ 1.000: 4.000 msgs, 5.000 pacientes, 8 membros, 30 documentos), PREMIUM (R$ 1.500: 10.000
+  msgs, 20.000 pacientes, 15 membros, 100 documentos) e ENTERPRISE (a partir de R$ 2.000, ilimitado). Todos leem
+  áudio/imagem e usam base de conhecimento; o que muda é volume. `FREE` saiu do enum (migration converte).
+- `TenantStatus.PENDING`: a clínica cadastrada nasce pendente; pode configurar tudo (WhatsApp, serviços,
+  horários, base), mas a IA não responde pacientes (`tenant_pending`). O admin libera o plano na tela de
+  clínicas e a clínica ativa sozinha (`admin_update_tenant`: plano definido em PENDING → ACTIVE). O painel
+  mostra o aviso "aguardando liberação" e o admin conta pendentes na visão geral.
+- Persona gerada: `Tenant.prompt` virou "instruções extras" opcionais (vazio por padrão) e `Tenant.tone`
+  (acolhedor | objetivo | formal) escolhe um texto pronto em `services/ai.py::persona_text`, sempre com nome da
+  clínica e regras operacionais. A tela mostra "a assistente já vem pronta" e só o tom; instruções extras ficam
+  escondidas até quem quiser abrir.
+**Consequências.** Limites e preços em um lugar (`PLAN_LIMITS`); Stripe ganha `STRIPE_PRICE_PREMIUM`.
+Testes ativam a clínica no `register_user` por padrão (`active=False` testa o pendente). Os números de volume
+por faixa são minha proposta e a Julia pode ajustar.
+

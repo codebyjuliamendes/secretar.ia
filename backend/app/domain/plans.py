@@ -7,9 +7,9 @@ from enum import StrEnum
 
 
 class Plan(StrEnum):
-    FREE = "FREE"
-    BASIC = "BASIC"
-    PRO = "PRO"
+    BASIC = "BASIC"  # Essencial
+    PRO = "PRO"  # Profissional
+    PREMIUM = "PREMIUM"
     ENTERPRISE = "ENTERPRISE"
 
 
@@ -24,38 +24,48 @@ class PlanLimits:
     media_understanding: bool = False  # áudio e imagem do paciente lidos pela IA
     knowledge_base: bool = False  # base de conhecimento (RAG) no atendimento
     max_knowledge_documents: int = 0  # -1 = ilimitado
+    label: str = ""  # nome comercial
+    price_from: bool = False  # preço é "a partir de" (negociado)
 
 
 PLAN_LIMITS: dict[Plan, PlanLimits] = {
-    Plan.FREE: PlanLimits(
-        ai_messages_per_month=200,
-        max_patients=100,
-        max_members=2,
-        upsell_campaigns=False,
-        ai_model_tier="standard",
-        price_cents_month=0,
-    ),
+    # Sem plano gratuito (decisão de produto, 13/set/2026): a clínica nasce aguardando liberação e o admin
+    # define a faixa. Todos os planos leem áudio/imagem e usam base de conhecimento; o que muda é volume.
     Plan.BASIC: PlanLimits(
-        ai_messages_per_month=2_000,
+        ai_messages_per_month=1_500,
         max_patients=1_000,
-        max_members=5,
+        max_members=3,
         upsell_campaigns=True,
         ai_model_tier="standard",
-        price_cents_month=29_700,
+        price_cents_month=75_000,
         media_understanding=True,
         knowledge_base=True,
         max_knowledge_documents=10,
+        label="Essencial",
     ),
     Plan.PRO: PlanLimits(
+        ai_messages_per_month=4_000,
+        max_patients=5_000,
+        max_members=8,
+        upsell_campaigns=True,
+        ai_model_tier="premium",
+        price_cents_month=100_000,
+        media_understanding=True,
+        knowledge_base=True,
+        max_knowledge_documents=30,
+        label="Profissional",
+    ),
+    Plan.PREMIUM: PlanLimits(
         ai_messages_per_month=10_000,
-        max_patients=10_000,
+        max_patients=20_000,
         max_members=15,
         upsell_campaigns=True,
         ai_model_tier="premium",
-        price_cents_month=59_700,
+        price_cents_month=150_000,
         media_understanding=True,
         knowledge_base=True,
-        max_knowledge_documents=50,
+        max_knowledge_documents=100,
+        label="Premium",
     ),
     Plan.ENTERPRISE: PlanLimits(
         ai_messages_per_month=-1,
@@ -63,14 +73,16 @@ PLAN_LIMITS: dict[Plan, PlanLimits] = {
         max_members=-1,
         upsell_campaigns=True,
         ai_model_tier="premium",
-        price_cents_month=0,  # negociado
+        price_cents_month=200_000,  # a partir de; negociado
         media_understanding=True,
         knowledge_base=True,
         max_knowledge_documents=-1,
+        label="Enterprise",
+        price_from=True,
     ),
 }
 
-# Não há período de teste: a clínica nasce no FREE e o plano pago é liberado manualmente pelo admin (ADR-016).
+# Não há período de teste nem plano gratuito: a clínica nasce PENDING e o admin libera a faixa (ADR-016/018).
 FEATURES = ("media", "knowledge")
 
 
@@ -114,6 +126,8 @@ def plan_public_view(plan: Plan) -> dict:
     lim = PLAN_LIMITS[plan]
     return {
         "plan": plan.value,
+        "label": lim.label,
+        "priceFrom": lim.price_from,
         "aiMessagesPerMonth": lim.ai_messages_per_month,
         "maxPatients": lim.max_patients,
         "maxMembers": lim.max_members,

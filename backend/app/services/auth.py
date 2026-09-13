@@ -115,12 +115,9 @@ async def register(
                 data={
                     "name": clinic_name.strip(),
                     "whatsapp": phone,
-                    "prompt": (
-                        f"Você é a secretária virtual da clínica {clinic_name.strip()}. "
-                        "Seja cordial, objetiva e profissional."
-                    ),
-                    "status": "ACTIVE",
-                    "plan": "FREE",
+                    "prompt": "",  # a persona é gerada pelo tom; a clínica não precisa escrever nada
+                    "status": "PENDING",  # a equipe Secretar.ia libera o plano
+                    "plan": "BASIC",
                 }
             )
             await tx.membership.create(data={"userId": user.id, "tenantId": tenant.id, "role": "OWNER"})

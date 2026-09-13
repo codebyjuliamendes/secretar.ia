@@ -9,8 +9,8 @@ import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, formatDate, formatPhone } from "
 import type { AdminTenant, Paginated, Plan, TenantStatus } from "@/lib/types";
 import { useDebounced, useQuery } from "@/lib/use-query";
 
-const PLANS: Plan[] = ["FREE", "BASIC", "PRO", "ENTERPRISE"];
-const STATUSES: TenantStatus[] = ["ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"];
+const PLANS: Plan[] = ["BASIC", "PRO", "PREMIUM", "ENTERPRISE"];
+const STATUSES: TenantStatus[] = ["PENDING", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"];
 const LIMIT = 25;
 
 export default function AdminTenantsPage() {
@@ -89,7 +89,7 @@ export default function AdminTenantsPage() {
 
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "FREE" as Plan, status: "ACTIVE" as TenantStatus });
+  const [form, setForm] = useState({ name: "", whatsapp: "", prompt: "Você é a secretária virtual da clínica. Seja cordial, objetiva e profissional.", prices: "", businessHours: "", plan: "BASIC" as Plan, status: "ACTIVE" as TenantStatus });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

@@ -82,16 +82,18 @@ async def test_new_user_creates_account_on_accept_and_email_is_verified(client, 
 
 
 async def test_resend_cancel_expiry_and_member_limit_count_pending(client, clean_db):
-    owner = await register_user(client)  # FREE: 2 membros
+    owner = await register_user(client, plan="BASIC")  # Essencial: 3 membros
     tid, ho = owner["tenantId"], auth_headers(owner)
-    e1, e2 = unique_email("a"), unique_email("b")
+    e1, e2, e3 = unique_email("a"), unique_email("b"), unique_email("c")
     inv1 = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e1, "name": "Ana", "role": "STAFF"})
     assert inv1.status_code == 201
-    # Owner + 1 convite pendente = 2: o próximo e-mail estoura o limite do FREE.
-    over = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e2, "name": "Bia", "role": "STAFF"})
+    first_token = _last_token(await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"}))
+    inv2 = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e2, "name": "Bia", "role": "STAFF"})
+    assert inv2.status_code == 201
+    # Owner + 2 convites pendentes = 3: o próximo e-mail estoura o limite do Essencial.
+    over = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e3, "name": "Cris", "role": "STAFF"})
     assert over.status_code == 402 and over.json()["error"]["code"] == "member_limit"
     # Reenviar para o MESMO e-mail não conta duas vezes e troca o token.
-    first_token = _last_token(await clean_db.job.find_first(where={"name": "send-email"}, order={"createdAt": "desc"}))
     again = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e1, "name": "Ana", "role": "STAFF"})
     assert again.status_code == 201
     assert (await client.get(f"/api/auth/invites/{first_token}")).status_code == 404  # token antigo morreu
@@ -108,9 +110,12 @@ async def test_resend_cancel_expiry_and_member_limit_count_pending(client, clean
         await client.post("/api/auth/invites/accept", json={"token": token, "password": "Senha1234"})
     ).status_code == 410
     # Expirado não conta no limite; cancelar remove.
-    fresh = await client.post(f"/api/clinic/{tid}/team", headers=ho, json={"email": e2, "name": "Bia", "role": "STAFF"})
+    fresh = await client.post(
+        f"/api/clinic/{tid}/team", headers=ho, json={"email": e3, "name": "Cris", "role": "STAFF"}
+    )
     assert fresh.status_code == 201
     assert (await client.delete(f"/api/clinic/{tid}/team/invites/{fresh.json()['id']}", headers=ho)).status_code == 204
+    assert (await client.delete(f"/api/clinic/{tid}/team/invites/{inv2.json()['id']}", headers=ho)).status_code == 204
     assert (await client.get(f"/api/clinic/{tid}/team", headers=ho)).json()["invites"] == []
     # Gerente não gerencia convites.
     assert (await client.delete(f"/api/clinic/{tid}/team/invites/nao-existe", headers=ho)).status_code == 404

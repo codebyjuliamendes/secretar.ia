@@ -1,7 +1,8 @@
 export type PlatformRole = "USER" | "SUPER_ADMIN";
 export type TenantRole = "OWNER" | "MANAGER" | "STAFF";
-export type TenantStatus = "ACTIVE" | "PAST_DUE" | "CANCELED" | "SUSPENDED";
-export type Plan = "FREE" | "BASIC" | "PRO" | "ENTERPRISE";
+export type TenantStatus = "PENDING" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "SUSPENDED";
+export type Plan = "BASIC" | "PRO" | "PREMIUM" | "ENTERPRISE";
+export type Tone = "acolhedor" | "objetivo" | "formal";
 export type AppointmentStatus = "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELED" | "NO_SHOW";
 
 export interface MembershipSummary {
@@ -40,6 +41,8 @@ export interface TenantSummary {
 
 export interface PlanLimits {
   plan: Plan;
+  label: string;
+  priceFrom: boolean;
   aiMessagesPerMonth: number;
   maxPatients: number;
   maxMembers: number;
@@ -60,6 +63,7 @@ export interface FeatureAccess {
 
 export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNotifications"> {
   prompt: string;
+  tone: Tone;
   prices: string | null;
   businessHours: string | null;
   upsellEnabled: boolean;
@@ -295,7 +299,7 @@ export interface AdminTenant {
 }
 
 export interface AdminOverview {
-  tenants: { total: number; active: number; free: number; pastDue: number; inactive: number };
+  tenants: { total: number; active: number; pending: number; pastDue: number; inactive: number };
   mrrCents: number;
   aiMessagesThisMonth: number;
   failedJobs: number;

@@ -59,13 +59,12 @@ def test_can_assign_role():
 
 
 def test_plan_limits():
-    assert limits_for(Plan.FREE).ai_messages_per_month == 200
+    assert limits_for(Plan.BASIC).ai_messages_per_month == 1_500 and limits_for(Plan.BASIC).price_cents_month == 75_000
+    assert limits_for(Plan.PRO).price_cents_month == 100_000 and limits_for(Plan.PREMIUM).price_cents_month == 150_000
+    assert limits_for(Plan.ENTERPRISE).price_cents_month == 200_000 and limits_for(Plan.ENTERPRISE).price_from
     assert limits_for("ENTERPRISE").ai_messages_per_month == -1
-    assert within_limit(199, 200)
-    assert not within_limit(200, 200)
-    assert within_limit(10_000_000, -1)
-    assert not limits_for(Plan.FREE).upsell_campaigns
-    assert limits_for(Plan.BASIC).upsell_campaigns
+    assert within_limit(199, 200) and not within_limit(200, 200) and within_limit(10_000, -1)
+    assert [limits_for(p).label for p in Plan] == ["Essencial", "Profissional", "Premium", "Enterprise"]
 
 
 def test_plan_features_follow_the_contracted_plan():
@@ -73,20 +72,13 @@ def test_plan_features_follow_the_contracted_plan():
 
     from app.domain.plans import feature_access_view, feature_enabled, feature_plan, knowledge_documents_limit
 
-    free = SimpleNamespace(plan="FREE", status="ACTIVE")
-    assert feature_plan(free) == Plan.FREE
-    assert not feature_enabled(free, "media") and not feature_enabled(free, "knowledge")
-    assert knowledge_documents_limit(free) == 0 and feature_access_view(free)["featurePlan"] == "FREE"
-    basic = SimpleNamespace(plan="BASIC", status="ACTIVE")
-    assert feature_enabled(basic, "media") and knowledge_documents_limit(basic) == 10
-    pro = SimpleNamespace(plan="PRO", status="ACTIVE")
-    assert feature_access_view(pro) == {
-        "featurePlan": "PRO",
-        "media": True,
-        "knowledge": True,
-        "maxKnowledgeDocuments": 50,
-    }
+    basic = SimpleNamespace(plan="BASIC", status="PENDING")
+    assert feature_plan(basic) == Plan.BASIC
+    assert feature_enabled(basic, "media") and feature_enabled(basic, "knowledge")
+    assert knowledge_documents_limit(basic) == 10 and feature_access_view(basic)["featurePlan"] == "BASIC"
+    assert knowledge_documents_limit(SimpleNamespace(plan="PRO", status="ACTIVE")) == 30
+    assert knowledge_documents_limit(SimpleNamespace(plan="PREMIUM", status="ACTIVE")) == 100
     enterprise = SimpleNamespace(plan="ENTERPRISE", status="PAST_DUE")
     assert knowledge_documents_limit(enterprise) == -1 and within_limit(10_000, knowledge_documents_limit(enterprise))
     with pytest.raises(ValueError):
-        feature_enabled(free, "teleporte")
+        feature_enabled(basic, "teleporte")

@@ -1,4 +1,4 @@
-import type { AppointmentStatus, Plan, TenantRole, TenantStatus } from "./types";
+import type { AppointmentStatus, Plan, TenantRole, TenantStatus, Tone } from "./types";
 
 export const brl = (cents: number) =>
   (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -28,6 +28,7 @@ export const formatPhone = (digits: string) => {
 };
 
 export const STATUS_LABEL: Record<TenantStatus, string> = {
+  PENDING: "Aguardando liberação",
   ACTIVE: "Ativa",
   PAST_DUE: "Pagamento pendente",
   CANCELED: "Cancelada",
@@ -35,6 +36,7 @@ export const STATUS_LABEL: Record<TenantStatus, string> = {
 };
 
 export const STATUS_TONE: Record<TenantStatus, "success" | "info" | "warning" | "danger" | "neutral"> = {
+  PENDING: "warning",
   ACTIVE: "success",
   PAST_DUE: "warning",
   CANCELED: "neutral",
@@ -64,10 +66,16 @@ export const ROLE_LABEL: Record<TenantRole, string> = {
 };
 
 export const PLAN_LABEL: Record<Plan, string> = {
-  FREE: "Gratuito",
-  BASIC: "Básico",
-  PRO: "Pro",
+  BASIC: "Essencial",
+  PRO: "Profissional",
+  PREMIUM: "Premium",
   ENTERPRISE: "Enterprise",
+};
+
+export const TONE_LABEL: Record<Tone, { label: string; hint: string }> = {
+  acolhedor: { label: "Acolhedora", hint: "Gentil e próxima, chama pelo nome, um emoji discreto." },
+  objetivo: { label: "Objetiva", hint: "Direta e curta, sem emoji." },
+  formal: { label: "Formal", hint: "Senhor/senhora, linguagem cuidada." },
 };
 
 export const INTENT_LABEL: Record<string, string> = {

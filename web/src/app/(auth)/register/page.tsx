@@ -50,7 +50,7 @@ export default function RegisterPage() {
   return (
     <>
       <h1 className="text-xl font-semibold">Criar conta</h1>
-      <p className="mt-1 text-sm text-muted">Comece no plano gratuito, sem cartão de crédito. Planos pagos são liberados pela equipe Secretar.ia.</p>
+      <p className="mt-1 text-sm text-muted">Cadastre a clínica e configure tudo sem cartão de crédito. A equipe Secretar.ia libera o plano em seguida.</p>
       <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
         <Field label="Seu nome" htmlFor="name" required error={fieldErrors.name}>
           <Input id="name" autoComplete="name" value={form.name} onChange={set("name")} />

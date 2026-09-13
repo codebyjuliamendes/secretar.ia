@@ -17,17 +17,17 @@ from app.services import tenants as tenant_service
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_super_admin)])
 
-PlanLiteral = Literal["FREE", "BASIC", "PRO", "ENTERPRISE"]
-StatusLiteral = Literal["ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"]
+PlanLiteral = Literal["BASIC", "PRO", "PREMIUM", "ENTERPRISE"]
+StatusLiteral = Literal["PENDING", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"]
 
 
 class TenantCreateIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     whatsapp: str = Field(min_length=8, max_length=32)
-    prompt: str = Field(min_length=10, max_length=4000)
+    prompt: str = Field(default="", max_length=4000)
     prices: str | None = Field(default=None, max_length=4000)
     businessHours: str | None = Field(default=None, max_length=300)
-    plan: PlanLiteral = "FREE"
+    plan: PlanLiteral = "BASIC"
     status: StatusLiteral = "ACTIVE"
 
 

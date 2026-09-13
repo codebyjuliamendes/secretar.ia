@@ -1,8 +1,4 @@
-"""Recursos de plano: leitura de áudio/imagem e base de conhecimento (RAG).
-
-Regra: FREE não inclui nenhum dos dois; BASIC/PRO/ENTERPRISE incluem (com limite de documentos por plano).
-Não há trial: a clínica nasce ATIVA no FREE e o admin libera o plano pago. Tudo verificado no backend.
-"""
+"""Planos pagos (Essencial, Profissional, Premium, Enterprise), clínica pendente até o admin liberar, limites."""
 
 import base64
 import json
@@ -14,6 +10,7 @@ from app.security.signatures import sign_hub
 from app.services import media as media_service
 from tests.conftest import auth_headers, register_user
 from tests.integration.test_knowledge import DOC_PAGAMENTO
+from tests.integration.test_rbac_and_admin import login
 
 FAKE_AUDIO = base64.b64encode(b"OggS" + b"\x00" * 64).decode()
 
@@ -29,122 +26,56 @@ class FakeGemini:
 
     async def describe_media(self, prompt, data, mime_type, *, max_output_tokens=None):
         self.calls += 1
-        return AIResult(text="não deveria ser chamado", input_tokens=1, output_tokens=1, model="fake")
+        return AIResult(text="Quero agendar um peeling", input_tokens=1, output_tokens=1, model="fake")
 
 
-async def test_new_clinic_is_active_free_and_plan_unlocks_features(client, clean_db):
-    reg = await register_user(client)
+async def test_new_clinic_waits_for_admin_to_release_the_plan(client, clean_db):
+    reg = await register_user(client, active=False)
     tid, h = reg["tenantId"], auth_headers(reg)
-
     summary = (await client.get(f"/api/clinic/{tid}", headers=h)).json()
-    assert summary["status"] == "ACTIVE" and summary["plan"] == "FREE" and "trialEndsAt" not in summary
+    assert summary["status"] == "PENDING" and summary["plan"] == "BASIC"
     settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
-    assert settings["featureAccess"] == {
-        "featurePlan": "FREE",
-        "media": False,
-        "knowledge": False,
-        "maxKnowledgeDocuments": 0,
-    }
-    assert settings["planLimits"]["knowledgeBase"] is False
-    billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
-    assert billing["usage"]["knowledgeDocuments"] == {"used": 0, "limit": 0}
-    # O admin libera o plano manualmente (aqui, direto no banco): recursos passam a valer.
-    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})
-    settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
-    assert settings["featureAccess"]["featurePlan"] == "PRO" and settings["featureAccess"]["knowledge"] is True
-    billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
-    assert billing["usage"]["knowledgeDocuments"] == {"used": 0, "limit": 50}
-    plans = {p["plan"]: p for p in billing["plans"]}
-    assert plans["FREE"]["mediaUnderstanding"] is False and plans["BASIC"]["maxKnowledgeDocuments"] == 10
-    assert plans["ENTERPRISE"]["maxKnowledgeDocuments"] == -1
+    assert settings["prompt"] == "" and settings["tone"] == "acolhedor"  # nada a escrever: persona gerada
 
+    # Pendente: pode configurar (inclusive a base de conhecimento), mas a IA não atende pacientes.
     doc = await client.post(
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Pagamento", "content": DOC_PAGAMENTO}
     )
     assert doc.status_code == 201
-    # O campo livre `features` não é editável pela clínica nem sobrepõe o plano.
-    patched = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"features": {"knowledge": True}})
-    assert patched.status_code == 200 and patched.json()["features"] == {}
+    body, headers = signed({"messageId": "pend-1", "phone": "5581999990000", "text": "oi", "tenantId": tid})
+    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
+    assert res.json() == {
+        "status": "blocked",
+        "intent": None,
+        "reply": None,
+        "reason": "tenant_pending",
+        "degraded": False,
+    }
 
-    # Voltou ao FREE: documento continua listado, mas não pode ser alterado nem usado.
-    await clean_db.tenant.update(where={"id": tid}, data={"plan": "FREE"})
-    settings = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
-    assert settings["featureAccess"]["knowledge"] is False
-    assert len((await client.get(f"/api/clinic/{tid}/knowledge", headers=h)).json()["items"]) == 1
-    locked = await client.post(
-        f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Outro", "content": DOC_PAGAMENTO}
-    )
-    assert locked.status_code == 402 and locked.json()["error"]["code"] == "plan_feature_locked"
-    assert (await client.post(f"/api/clinic/{tid}/knowledge/reindex", headers=h)).status_code == 402
-    search = (await client.post(f"/api/clinic/{tid}/knowledge/search?q=cartão", headers=h)).json()
-    assert search == {"items": [], "locked": True}
+    # Admin libera o plano: a clínica ativa sozinha e passa a atender.
+    admin_user = await register_user(client, active=False)
+    await clean_db.user.update(where={"email": admin_user["email"]}, data={"platformRole": "SUPER_ADMIN"})
+    admin = await login(client, admin_user["email"], admin_user["password"])
+    upd = await client.patch(f"/api/admin/tenants/{tid}", headers=auth_headers(admin), json={"plan": "PRO"})
+    assert upd.status_code == 200 and upd.json()["status"] == "ACTIVE" and upd.json()["plan"] == "PRO"
+    body, headers = signed({"messageId": "pend-2", "phone": "5581999990000", "text": "oi", "tenantId": tid})
+    assert (await client.post("/api/webhooks/whatsapp", content=body, headers=headers)).json()["status"] == "processed"
+    overview = (await client.get("/api/admin/overview", headers=auth_headers(admin))).json()
+    assert overview["tenants"]["pending"] == 1  # a clínica do próprio admin continua pendente
+
+
+async def test_plan_catalog_and_document_limits(client, clean_db):
+    reg = await register_user(client, plan="BASIC")
+    tid, h = reg["tenantId"], auth_headers(reg)
     billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
-    assert billing["usage"]["knowledgeDocuments"] == {"used": 1, "limit": 0}
+    plans = {p["plan"]: p for p in billing["plans"]}
+    assert list(plans) == ["BASIC", "PRO", "PREMIUM", "ENTERPRISE"]
+    assert plans["BASIC"]["label"] == "Essencial" and plans["BASIC"]["priceCentsMonth"] == 75_000
+    assert plans["PRO"]["priceCentsMonth"] == 100_000 and plans["PREMIUM"]["priceCentsMonth"] == 150_000
+    assert plans["ENTERPRISE"]["priceFrom"] is True and plans["ENTERPRISE"]["maxKnowledgeDocuments"] == -1
+    assert all(p["mediaUnderstanding"] and p["knowledgeBase"] for p in plans.values())
+    assert billing["usage"]["knowledgeDocuments"] == {"used": 0, "limit": 10}
 
-    # A IA não cita a base: a resposta por regras vira a padrão, sem o trecho.
-    body, headers = signed({"messageId": "pf-1", "phone": "5581999990000", "text": "aceitam cartão?", "tenantId": tid})
-    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
-    assert res.status_code == 200 and "cartão de crédito em até 6" not in res.json()["reply"]
-
-    # Voltou a pagar: a base volta a funcionar sem precisar recriar nada.
-    await clean_db.tenant.update(where={"id": tid}, data={"plan": "BASIC"})
-    body, headers = signed({"messageId": "pf-2", "phone": "5581999990000", "text": "aceitam cartão?", "tenantId": tid})
-    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
-    assert "cartão de crédito em até 6" in res.json()["reply"]
-    assert (await client.delete(f"/api/clinic/{tid}/knowledge/{doc.json()['id']}", headers=h)).status_code == 204
-
-
-async def test_free_plan_media_gets_text_fallback_without_calling_provider(
-    client, clean_db, monkeypatch: pytest.MonkeyPatch
-):
-    fake = FakeGemini()
-    monkeypatch.setattr(media_service, "client_for", lambda settings: fake)
-    reg = await register_user(client)
-    tid, h = reg["tenantId"], auth_headers(reg)
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "FREE"})
-    body, headers = signed(
-        {
-            "messageId": "pf-aud-1",
-            "phone": "5581999990001",
-            "text": "",
-            "tenantId": tid,
-            "mediaKind": "audio",
-            "mediaBase64": FAKE_AUDIO,
-            "mediaMimeType": "audio/ogg",
-        }
-    )
-    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
-    assert res.status_code == 200, res.text
-    data = res.json()
-    assert data["status"] == "processed" and data["degraded"] is True
-    assert "só consigo ler mensagens de texto" in data["reply"]
-    assert fake.calls == 0  # o provedor não é acionado para um recurso fora do plano
-    logs = await clean_db.executionlog.find_many(where={"tenantId": tid})
-    assert logs and logs[0].error == "media_not_in_plan"
-    inbox = (await client.get(f"/api/clinic/{tid}/notifications", headers=h)).json()
-    titles = [n["title"] for n in inbox["items"]]
-    assert "Áudio e imagem não incluídos no plano" in titles
-    # Mesma clínica no PRO: a mídia passa a ser lida (o fake é chamado).
-    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})
-    body, headers = signed(
-        {
-            "messageId": "pf-aud-2",
-            "phone": "5581999990001",
-            "text": "",
-            "tenantId": tid,
-            "mediaKind": "audio",
-            "mediaBase64": FAKE_AUDIO,
-            "mediaMimeType": "audio/ogg",
-        }
-    )
-    assert (await client.post("/api/webhooks/whatsapp", content=body, headers=headers)).status_code == 200
-    assert fake.calls == 1
-
-
-async def test_basic_plan_document_limit(client, clean_db):
-    reg = await register_user(client)
-    tid, h = reg["tenantId"], auth_headers(reg)
-    await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "BASIC"})
     for i in range(10):
         r = await client.post(
             f"/api/clinic/{tid}/knowledge",
@@ -155,7 +86,51 @@ async def test_basic_plan_document_limit(client, clean_db):
     over = await client.post(
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Onze", "content": "Este documento excede o plano."}
     )
-    assert over.status_code == 402 and over.json()["error"]["code"] == "knowledge_limit"
-    assert over.json()["error"]["details"] == {"limit": 10}
-    billing = (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()
-    assert billing["usage"]["knowledgeDocuments"] == {"used": 10, "limit": 10}
+    assert over.status_code == 402 and over.json()["error"]["details"] == {"limit": 10}
+    # Subiu para Profissional: 30 documentos.
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "PRO"})
+    assert (await client.get(f"/api/clinic/{tid}/billing", headers=h)).json()["usage"]["knowledgeDocuments"][
+        "limit"
+    ] == 30
+
+
+async def test_every_paid_plan_reads_media(client, clean_db, monkeypatch: pytest.MonkeyPatch):
+    fake = FakeGemini()
+    monkeypatch.setattr(media_service, "client_for", lambda settings: fake)
+    reg = await register_user(client, plan="BASIC")
+    tid = reg["tenantId"]
+    body, headers = signed(
+        {
+            "messageId": "aud-basic",
+            "phone": "5581999990001",
+            "text": "",
+            "tenantId": tid,
+            "mediaKind": "audio",
+            "mediaBase64": FAKE_AUDIO,
+            "mediaMimeType": "audio/ogg",
+        }
+    )
+    res = await client.post("/api/webhooks/whatsapp", content=body, headers=headers)
+    assert res.status_code == 200 and fake.calls == 1
+    logs = await clean_db.executionlog.find_many(where={"tenantId": tid})
+    assert logs and logs[0].error != "media_not_in_plan"
+
+
+async def test_tone_drives_the_generated_persona(client, clean_db):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from app.services.ai import build_system_prompt
+
+    reg = await register_user(client)
+    tid, h = reg["tenantId"], auth_headers(reg)
+    upd = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"tone": "formal", "prompt": ""})
+    assert upd.status_code == 200 and upd.json()["tone"] == "formal"
+    t = SimpleNamespace(name="Clínica X", tone="formal", prompt="", businessHours=None, prices=None, timezone="UTC")
+    prompt = build_system_prompt(t, now_local=datetime.now(UTC), upcoming=[])
+    assert "senhor/senhora" in prompt and "secretária virtual da clínica Clínica X" in prompt
+    assert "Instruções adicionais" not in prompt
+    t.prompt = "Não prometa desconto."
+    assert "Não prometa desconto." in build_system_prompt(t, now_local=datetime.now(UTC), upcoming=[])
+    bad = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"tone": "sarcástico"})
+    assert bad.status_code == 422

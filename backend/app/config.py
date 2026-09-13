@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_price_basic: str = ""  # price_... do plano BASIC no Stripe
     stripe_price_pro: str = ""  # price_... do plano PRO no Stripe
+    stripe_price_premium: str = ""  # price_... do plano PREMIUM no Stripe
     cron_secret: str = ""
 
     google_client_id: str = ""

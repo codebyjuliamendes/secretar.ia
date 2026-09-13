@@ -118,7 +118,11 @@ def unique_phone() -> str:
     return "5581" + str(uuid.uuid4().int)[:9]
 
 
-async def register_user(client, *, clinic: str = "Clínica Teste", role_email: str | None = None) -> dict:
+async def register_user(
+    client, *, clinic: str = "Clínica Teste", role_email: str | None = None, active: bool = True, plan: str = "PRO"
+) -> dict:
+    """Cadastra usuário+clínica. A clínica nasce PENDING (aguardando liberação); por padrão o teste já a ativa
+    no plano dado, como o admin faria. Use `active=False` para testar o estado pendente."""
     payload = {
         "name": "Pessoa Teste",
         "email": role_email or unique_email(),
@@ -129,6 +133,12 @@ async def register_user(client, *, clinic: str = "Clínica Teste", role_email: s
     res = await client.post("/api/auth/register", json=payload)
     assert res.status_code == 201, res.text
     body = res.json()
+    if active:
+        from app.db import db
+
+        await db.tenant.update(
+            where={"id": body["user"]["memberships"][0]["tenantId"]}, data={"status": "ACTIVE", "plan": plan}
+        )
     return {
         **body,
         "password": payload["password"],

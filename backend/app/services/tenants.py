@@ -10,7 +10,7 @@ from app.errors import ConflictError, NotFoundError
 from app.services import audit
 from generated_prisma.errors import UniqueViolationError
 
-ALLOWED_TENANT_STATUSES = {"ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
+ALLOWED_TENANT_STATUSES = {"PENDING", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
 
 
 def tenant_public(t) -> dict:
@@ -30,6 +30,7 @@ def tenant_settings_view(t) -> dict:
     return {
         **tenant_public(t),
         "prompt": t.prompt,
+        "tone": t.tone,
         "prices": t.prices,
         "businessHours": t.businessHours,
         "upsellEnabled": t.upsellEnabled,
@@ -45,7 +46,7 @@ def tenant_settings_view(t) -> dict:
 def is_tenant_operational(t) -> tuple[bool, str | None]:
     """Define se a IA deve responder pacientes deste tenant."""
     status = str(t.status)
-    if status in ("PAST_DUE", "CANCELED", "SUSPENDED"):
+    if status in ("PENDING", "PAST_DUE", "CANCELED", "SUSPENDED"):
         return False, f"tenant_{status.lower()}"
     return True, None
 
@@ -138,7 +139,7 @@ async def admin_overview() -> dict:
         """
         SELECT
           COUNT(*) FILTER (WHERE status = 'ACTIVE') AS active,
-          COUNT(*) FILTER (WHERE status = 'ACTIVE' AND plan = 'FREE') AS free,
+          COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
           COUNT(*) FILTER (WHERE status = 'PAST_DUE') AS past_due,
           COUNT(*) FILTER (WHERE status IN ('CANCELED','SUSPENDED')) AS inactive,
           COUNT(*) AS total
@@ -159,7 +160,7 @@ async def admin_overview() -> dict:
         "tenants": {
             "total": int(r.get("total") or 0),
             "active": int(r.get("active") or 0),
-            "free": int(r.get("free") or 0),
+            "pending": int(r.get("pending") or 0),
             "pastDue": int(r.get("past_due") or 0),
             "inactive": int(r.get("inactive") or 0),
         },
@@ -178,7 +179,8 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
                 "prompt": data["prompt"],
                 "prices": data.get("prices"),
                 "businessHours": data.get("businessHours"),
-                "plan": data.get("plan") or "FREE",
+                "plan": data.get("plan") or "BASIC",
+                "tone": data.get("tone") or "acolhedor",
                 "status": data.get("status") or "ACTIVE",
             }
         )
@@ -199,10 +201,12 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
 
 
 async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_user_id: str, ip: str | None) -> dict:
-    await get_tenant_or_404(tenant_id)
+    tenant = await get_tenant_or_404(tenant_id)
     payload = {k: v for k, v in data.items() if v is not None}
     if "status" in payload and payload["status"] not in ALLOWED_TENANT_STATUSES:
         raise ConflictError("Status inválido.", code="invalid_status")
+    if "plan" in payload and "status" not in payload and str(tenant.status) == "PENDING":
+        payload["status"] = "ACTIVE"  # liberar o plano é o gesto de ativação
     updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
     await audit.record(
         action="admin.tenant_updated",

@@ -59,10 +59,11 @@ async def test_patients_crud_and_limits(client, clean_db):
     lst = await client.get(f"/api/clinic/{tid}/patients?search=bia", headers=h)
     assert lst.json()["total"] == 1 and lst.json()["items"][0]["appointmentCount"] == 0
 
-    # Limite do plano FREE (100 pacientes) é aplicado no backend.
+    # Limite do plano Essencial (1.000 pacientes) é aplicado no backend.
+    await clean_db.tenant.update(where={"id": tid}, data={"plan": "BASIC"})
     await clean_db.query_raw(
         """INSERT INTO "Patient" (id, "tenantId", phone, "updatedAt")
-           SELECT 'p' || g, $1, '55819' || lpad(g::text, 8, '0'), NOW() FROM generate_series(1, 99) g""",
+           SELECT 'p' || g, $1, '55819' || lpad(g::text, 8, '0'), NOW() FROM generate_series(1, 999) g""",
         tid,
     )
     over = await client.post(f"/api/clinic/{tid}/patients", headers=h, json={"phone": "5581900000001"})
@@ -104,7 +105,7 @@ async def test_settings_update_and_dashboard_reflects_real_data(client, clean_db
     assert dash["kpis"]["patientsTotal"] == 1 and dash["kpis"]["appointmentsCreated"] == 1
     assert dash["kpis"]["appointmentsUpcoming"] == 1 and dash["kpis"]["revenueCompletedCents"] == 0
     assert len(dash["series"]) >= 30 and dash["recentAppointments"][0]["service"] == "Botox"
-    assert dash["usage"]["aiMessages"]["limit"] == 200
+    assert dash["usage"]["aiMessages"]["limit"] == 4000
 
 
 async def test_whatsapp_onboarding_console_provider(client, clean_db):
