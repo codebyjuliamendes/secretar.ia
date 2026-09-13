@@ -22,6 +22,12 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // onClose costuma ser recriado a cada render do pai (estado do formulário mora lá); guardar em ref evita
+  // re-executar o efeito — que devolveria o foco ao primeiro campo a cada tecla digitada.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -29,7 +35,7 @@ export function Modal({
     const node = ref.current;
     node?.querySelector<HTMLElement>("input, textarea, select, button")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
       if (e.key === "Tab" && node) {
         const focusables = Array.from(
           node.querySelectorAll<HTMLElement>('a, button, input, textarea, select, [tabindex]:not([tabindex="-1"])'),
@@ -53,7 +59,7 @@ export function Modal({
       document.body.style.overflow = "";
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const width = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl" }[size];

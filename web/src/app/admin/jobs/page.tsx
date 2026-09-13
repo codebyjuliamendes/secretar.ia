@@ -16,13 +16,19 @@ function JobsInner() {
   const [status, setStatus] = useState(useSearchParams().get("status") ?? "");
   const { data, error, loading, refetch } = useQuery(() => api.get<{ tasks: string[]; items: AdminJob[] }>("admin/jobs", { status, limit: 100 }), [status]);
 
+  const [retrying, setRetrying] = useState<string | null>(null);
+
   async function retry(id: string) {
+    if (retrying) return;
+    setRetrying(id);
     try {
       await api.post(`admin/jobs/${id}/retry`);
       toast.success("Tarefa reenfileirada.");
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -50,7 +56,7 @@ function JobsInner() {
                 <Td>{j.retries}/{j.maxRetries}</Td>
                 <Td className="whitespace-nowrap">{formatDateTime(j.runAt)}</Td>
                 <Td className="max-w-xs"><span className="block truncate text-xs text-muted" title={j.error ?? ""}>{j.error ?? "—"}</span></Td>
-                <Td className="text-right">{j.status === "FAILED" && <Button size="sm" variant="secondary" onClick={() => retry(j.id)}>Reprocessar</Button>}</Td>
+                <Td className="text-right">{j.status === "FAILED" && <Button size="sm" variant="secondary" loading={retrying === j.id} disabled={!!retrying} onClick={() => retry(j.id)}>Reprocessar</Button>}</Td>
               </tr>
             ))}
           </tbody>

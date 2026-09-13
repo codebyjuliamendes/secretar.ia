@@ -22,6 +22,38 @@ function startOfWeek(d: Date) {
   return x;
 }
 
+function addDays(d: Date, n: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n); // em dias de calendário: não deriva 1 h na virada do horário de verão
+  return x;
+}
+
+/** Distribui blocos que se sobrepõem em colunas lado a lado (encaixes com `force` não se escondem). */
+function layoutColumns<T extends { start: string; end: string }>(items: T[]) {
+  const sorted = [...items].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  const placed: { item: T; col: number; cols: number }[] = [];
+  let cluster: { item: T; col: number; cols: number }[] = [];
+  let clusterEnd = -Infinity;
+  const flush = () => {
+    const cols = Math.max(1, ...cluster.map((c) => c.col + 1));
+    for (const c of cluster) c.cols = cols;
+    placed.push(...cluster);
+    cluster = [];
+  };
+  for (const item of sorted) {
+    const s = new Date(item.start).getTime();
+    const e = new Date(item.end).getTime();
+    if (cluster.length && s >= clusterEnd) flush();
+    const taken = new Set(cluster.filter((c) => new Date(c.item.end).getTime() > s).map((c) => c.col));
+    let col = 0;
+    while (taken.has(col)) col++;
+    cluster.push({ item, col, cols: 1 });
+    clusterEnd = Math.max(clusterEnd, e);
+  }
+  if (cluster.length) flush();
+  return placed;
+}
+
 function minutesOf(d: Date) {
   return d.getHours() * 60 + d.getMinutes();
 }
@@ -45,7 +77,8 @@ export default function CalendarPage() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modal, setModal] = useState<{ open: boolean; date?: Date }>({ open: false });
   const [showCanceled, setShowCanceled] = useState(false);
-  const weekEnd = useMemo(() => new Date(weekStart.getTime() + 7 * 86400000), [weekStart]);
+  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { data, error, loading, refetch } = useQuery(
     () => api.get<CalendarData>(`clinic/${tenant.id}/calendar`, { from: weekStart.toISOString(), to: weekEnd.toISOString() }),
     [tenant.id, weekStart.getTime()],
@@ -64,7 +97,7 @@ export default function CalendarPage() {
     return { min, max };
   }, [data]);
 
-  const days = Array.from({ length: 7 }, (_, i) => new Date(weekStart.getTime() + i * 86400000));
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const hours: number[] = [];
   for (let m = range.min; m < range.max; m += 60) hours.push(m);
   const height = (range.max - range.min) * PX_PER_MIN;
@@ -99,9 +132,9 @@ export default function CalendarPage() {
         description="Semana da clínica. Clique em um horário livre para criar um agendamento."
         action={
           <>
-            <Button variant="secondary" onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))} aria-label="Semana anterior">‹</Button>
+            <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(addDays(weekStart, -7)))} aria-label="Semana anterior">‹</Button>
             <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(new Date()))}>Hoje</Button>
-            <Button variant="secondary" onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))} aria-label="Próxima semana">›</Button>
+            <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(addDays(weekStart, 7)))} aria-label="Próxima semana">›</Button>
             <Button onClick={() => setModal({ open: true })}>Novo agendamento</Button>
           </>
         }
@@ -111,6 +144,9 @@ export default function CalendarPage() {
           {weekStart.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} a {new Date(weekEnd.getTime() - 1).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
           {data && <> · fuso {data.timezone} · passo {data.slotMinutes} min</>}
         </span>
+        {data && browserTz !== data.timezone && (
+          <span className="basis-full text-warning">Seu computador está no fuso {browserTz}; a grade e os horários são mostrados nele, não no fuso da clínica ({data.timezone}).</span>
+        )}
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={showCanceled} onChange={(e) => setShowCanceled(e.target.checked)} /> mostrar cancelados
         </label>
@@ -193,23 +229,27 @@ export default function CalendarPage() {
                       </div>
                     );
                   })}
-                  {dayAppts.map((a) => {
+                  {layoutColumns(dayAppts).map(({ item: a, col, cols }) => {
                     const s = new Date(a.start);
                     const e = new Date(a.end);
                     const top = (minutesOf(s) - range.min) * PX_PER_MIN;
                     const h = Math.max(22, ((e.getTime() - s.getTime()) / 60000) * PX_PER_MIN - 2);
+                    const width = `calc((100% - 8px) / ${cols})`;
+                    const left = `calc(4px + (100% - 8px) * ${col} / ${cols})`;
                     return (
                       <div
                         key={a.id}
+                        tabIndex={0}
                         onClick={(ev) => ev.stopPropagation()}
-                        className={cx("group absolute inset-x-1 overflow-hidden rounded-md border-l-4 px-1.5 py-0.5 text-[11px] leading-tight shadow-sm", STATUS_BG[a.status])}
-                        style={{ top, height: h }}
+                        onKeyDown={(ev) => ev.stopPropagation()}
+                        className={cx("group absolute overflow-hidden rounded-md border-l-4 px-1.5 py-0.5 text-[11px] leading-tight shadow-sm focus:outline-none focus:ring-2 focus:ring-primary", STATUS_BG[a.status])}
+                        style={{ top, height: h, left, width }}
                         title={`${a.service} · ${a.patient?.name ?? a.patient?.phone ?? ""} · ${APPT_LABEL[a.status]}`}
                       >
                         <p className="truncate font-semibold">{s.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} {a.patient?.name ?? a.patient?.phone ?? "Paciente"}</p>
                         <p className="truncate">{a.service}{a.source === "AI" && " · IA"}</p>
                         {h > 60 && (
-                          <div className="mt-1 hidden gap-1 group-hover:flex">
+                          <div className="mt-1 hidden gap-1 group-hover:flex group-focus-within:flex">
                             {a.status === "PENDING" && <button className="rounded bg-surface px-1 text-[10px] text-foreground" onClick={() => quickStatus(a.id, "CONFIRMED")}>Confirmar</button>}
                             {a.status === "CONFIRMED" && <button className="rounded bg-surface px-1 text-[10px] text-foreground" onClick={() => quickStatus(a.id, "COMPLETED")}>Realizado</button>}
                             {(a.status === "PENDING" || a.status === "CONFIRMED") && <button className="rounded bg-surface px-1 text-[10px] text-foreground" onClick={() => quickStatus(a.id, "CANCELED")}>Cancelar</button>}

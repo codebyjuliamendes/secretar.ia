@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button, EmptyState, ErrorState, Field, Input, PageHeader, Pagination, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
@@ -16,7 +17,7 @@ const LIMIT = 25;
 export default function PatientsPage() {
   const { tenant } = useTenant();
   const toast = useToast();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(useSearchParams().get("search") ?? "");
   const [offset, setOffset] = useState(0);
   const [modal, setModal] = useState(false);
   const q = useDebounced(search);

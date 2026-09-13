@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -22,13 +22,19 @@ export default function AdminTenantsPage() {
   const q = useDebounced(search);
   const { data, error, loading, refetch } = useQuery(() => api.get<Paginated<AdminTenant>>("admin/tenants", { search: q, status, limit: LIMIT, offset }), [q, status, offset]);
 
+  const updating = useRef<Set<string>>(new Set());
+
   async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status">>) {
+    if (updating.current.has(t.id)) return;
+    updating.current.add(t.id);
     try {
       await api.patch(`admin/tenants/${t.id}`, patch);
       toast.success(`Clínica ${t.name} atualizada.`);
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      updating.current.delete(t.id);
     }
   }
 

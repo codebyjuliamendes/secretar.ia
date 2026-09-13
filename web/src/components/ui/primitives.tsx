@@ -260,7 +260,7 @@ export function PageHeader({ title, description, action }: { title: string; desc
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted">{description}</p>}
       </div>
-      {action && <div className="flex shrink-0 gap-2">{action}</div>}
+      {action && <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">{action}</div>}
     </div>
   );
 }

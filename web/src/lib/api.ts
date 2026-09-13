@@ -80,7 +80,11 @@ export const api = {
 };
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) {
+    // 422: diz qual campo falhou em vez de um "Dados inválidos" genérico.
+    if (err.details?.length) return `${err.message} ${err.details.map((d) => `${d.field}: ${d.message}`).join("; ")}`;
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return "Algo deu errado. Tente novamente.";
 }

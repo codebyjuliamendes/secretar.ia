@@ -44,7 +44,7 @@ export default function BillingPage() {
   const toast = useToast();
   const canManage = tenant.role === "OWNER";
   const checkoutResult = useCheckoutResult();
-  const { data, error, loading, refetch } = useQuery(() => api.get<Billing>(`clinic/${tenant.id}/billing`), [tenant.id]);
+  const { data, error, refetch } = useQuery(() => api.get<Billing>(`clinic/${tenant.id}/billing`), [tenant.id]);
   const [busy, setBusy] = useState<string | null>(null);
 
   // Após um checkout concluído, o webhook pode levar alguns segundos: recarrega uma vez depois.
@@ -79,7 +79,7 @@ export default function BillingPage() {
       {checkoutResult === "console" && <div className="mb-4"><Alert tone="warning">Ambiente de desenvolvimento: o gateway de pagamento não está configurado, então nada foi cobrado.</Alert></div>}
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
-      ) : loading || !data ? (
+      ) : !data ? (
         <Skeleton className="h-64" />
       ) : (
         <div className="space-y-4">

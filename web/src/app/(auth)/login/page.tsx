@@ -27,6 +27,7 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const expired = params.get("expired") === "1";
+  const reset = params.get("reset") === "1";
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -52,6 +53,11 @@ function LoginForm() {
       {expired && (
         <div className="mt-4">
           <Alert tone="warning">Sua sessão expirou. Entre novamente para continuar.</Alert>
+        </div>
+      )}
+      {reset && (
+        <div className="mt-4">
+          <Alert tone="success">Senha redefinida. Entre com a nova senha.</Alert>
         </div>
       )}
       <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>

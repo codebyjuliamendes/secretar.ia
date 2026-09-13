@@ -19,7 +19,7 @@ function delta(current: number, previous: number) {
 export default function DashboardPage() {
   const { tenant } = useTenant();
   const [days, setDays] = useState(30);
-  const { data, error, loading, refetch } = useQuery(() => api.get<Dashboard>(`clinic/${tenant.id}/dashboard`, { days }), [tenant.id, days]);
+  const { data, error, refetch } = useQuery(() => api.get<Dashboard>(`clinic/${tenant.id}/dashboard`, { days }), [tenant.id, days]);
   const base = `/app/${tenant.id}`;
 
   return (
@@ -37,7 +37,7 @@ export default function DashboardPage() {
       />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
-      ) : loading || !data ? (
+      ) : !data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />

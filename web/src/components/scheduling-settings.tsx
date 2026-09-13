@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useTenant } from "@/app/app/[tenantId]/layout";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Skeleton, Switch, Table, Td, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -17,6 +17,19 @@ function toDayState(rules: AvailabilityRule[]): DayState[] {
   return DAYS.map((_, wd) => {
     const r = rules.filter((x) => x.weekday === wd).sort((a, b) => a.start.localeCompare(b.start));
     return r.length ? { enabled: true, start: r[0].start, end: r[r.length - 1].end } : { enabled: false, start: "09:00", end: "18:00" };
+  });
+}
+
+/**
+ * Monta as regras a salvar. Um dia com mais de uma janela (ex.: 08–12 e 14–18, criado pela API) aparece aqui
+ * colapsado; se a equipe não mexeu nele, as janelas originais são preservadas em vez de virar uma só.
+ */
+function toRules(days: DayState[], original: AvailabilityRule[], initial: DayState[]): AvailabilityRule[] {
+  return days.flatMap((d, wd) => {
+    const untouched = d.enabled === initial[wd].enabled && d.start === initial[wd].start && d.end === initial[wd].end;
+    const originalDay = original.filter((r) => r.weekday === wd);
+    if (untouched && originalDay.length > 1) return originalDay;
+    return d.enabled ? [{ weekday: wd, start: d.start, end: d.end }] : [];
   });
 }
 
@@ -50,7 +63,7 @@ function AvailabilityForm({ initial, canManage, onSaved }: { initial: { rules: A
   async function save() {
     setSaving(true);
     try {
-      const rules = days.flatMap((d, wd) => (d.enabled ? [{ weekday: wd, start: d.start, end: d.end }] : []));
+      const rules = toRules(days, initial.rules, toDayState(initial.rules));
       await api.put(`clinic/${tenant.id}/availability/rules`, { rules, slotMinutes: Number(slot) });
       await onSaved();
     } catch (err) {
@@ -63,6 +76,9 @@ function AvailabilityForm({ initial, canManage, onSaved }: { initial: { rules: A
   return (
     <fieldset disabled={!canManage} className="space-y-3">
       <p className="text-sm text-muted">A IA só oferece horários dentro destas janelas e sem conflito com outros agendamentos.</p>
+      {initial.rules.some((r, i, all) => all.findIndex((o) => o.weekday === r.weekday) !== i) && (
+        <Alert tone="info">Alguns dias têm mais de uma janela (ex.: manhã e tarde). Elas aparecem resumidas aqui e são mantidas se você não alterar o dia.</Alert>
+      )}
       {!days.some((d) => d.enabled) && (
         <Alert tone="warning">Nenhum dia ativo: a assistente não vai oferecer horários e o calendário fica sem áreas de atendimento. Ligue os dias em que a clínica atende.</Alert>
       )}
@@ -115,22 +131,32 @@ export function ServicesCard({ canManage }: { canManage: boolean }) {
     }
   }
 
+  const inFlight = useRef<Set<string>>(new Set());
+
   async function toggle(s: Service) {
+    if (inFlight.current.has(s.id)) return;
+    inFlight.current.add(s.id);
     try {
       await api.patch(`clinic/${tenant.id}/services/${s.id}`, { active: !s.active });
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      inFlight.current.delete(s.id);
     }
   }
 
   async function remove(s: Service) {
+    if (inFlight.current.has(s.id)) return;
+    inFlight.current.add(s.id);
     try {
       await api.delete(`clinic/${tenant.id}/services/${s.id}`);
       toast.success("Serviço removido.");
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      inFlight.current.delete(s.id);
     }
   }
 

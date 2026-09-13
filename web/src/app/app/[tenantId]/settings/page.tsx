@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -12,14 +12,14 @@ import { useTenant } from "../layout";
 export default function SettingsPage() {
   const { tenant, reload } = useTenant();
   const canManage = tenant.role !== "STAFF";
-  const { data, error, loading, refetch } = useQuery(() => api.get<TenantSettings>(`clinic/${tenant.id}/settings`), [tenant.id]);
+  const { data, error, refetch } = useQuery(() => api.get<TenantSettings>(`clinic/${tenant.id}/settings`), [tenant.id]);
 
   return (
     <>
       <PageHeader title="Assistente & WhatsApp" description={canManage ? "Configure como a secretária virtual atende e conecte o número da clínica." : "Você pode visualizar as configurações; alterações são feitas por gerentes e proprietários."} />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
-      ) : loading || !data ? (
+      ) : !data ? (
         <Skeleton className="h-96" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
@@ -154,15 +154,33 @@ function UpsellForm({ settings, canManage, onSaved }: { settings: TenantSettings
 function WhatsAppCard({ canManage }: { canManage: boolean }) {
   const { tenant, reload } = useTenant();
   const toast = useToast();
-  const { data, error, loading, refetch, setData } = useQuery(() => api.get<WhatsAppStatus>(`clinic/${tenant.id}/whatsapp/status`), [tenant.id]);
+  const { data, error, refetch, setData } = useQuery(() => api.get<WhatsAppStatus>(`clinic/${tenant.id}/whatsapp/status`), [tenant.id]);
   const [busy, setBusy] = useState(false);
 
-  // Enquanto o QR estiver aberto, consulta o estado periodicamente.
+  // Enquanto o QR estiver aberto, consulta o estado a cada 5 s por até 5 minutos (o código expira).
+  const [, setPolls] = useState(0);
+  const [pollExpired, setPollExpired] = useState(false);
+  const wasConnected = useRef<boolean | null>(null);
   useEffect(() => {
-    if (!data || data.connected || !data.qrCode) return;
-    const t = setInterval(() => void refetch(), 5000);
+    if (!data) return;
+    // Conectou durante o polling: o shell (badge "WhatsApp conectado") precisa saber.
+    if (wasConnected.current === false && data.connected) void reload();
+    wasConnected.current = data.connected;
+  }, [data, reload]);
+  useEffect(() => {
+    if (!data || data.connected || !data.qrCode || pollExpired) return;
+    const t = setInterval(() => {
+      setPolls((n) => {
+        if (n + 1 >= 60) {
+          setPollExpired(true);
+          return n;
+        }
+        void refetch();
+        return n + 1;
+      });
+    }, 5000);
     return () => clearInterval(t);
-  }, [data, refetch]);
+  }, [data, refetch, pollExpired]);
 
   async function act(path: "connect" | "disconnect") {
     setBusy(true);
@@ -183,7 +201,7 @@ function WhatsAppCard({ canManage }: { canManage: boolean }) {
       <div id="whatsapp" className="space-y-3">
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : loading || !data ? (
+        ) : !data ? (
           <Skeleton className="h-24" />
         ) : data.connected ? (
           <>
@@ -195,8 +213,8 @@ function WhatsAppCard({ canManage }: { canManage: boolean }) {
             <p className="text-sm text-muted">No celular da clínica: WhatsApp → Aparelhos conectados → Conectar aparelho. Aponte para o código:</p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`data:image/png;base64,${data.qrCode}`} alt="QR Code para conectar o WhatsApp" className="mx-auto h-56 w-56 rounded-lg bg-white p-2" />
-            <p className="text-center text-xs text-muted">Atualizando automaticamente… estado: {data.state}</p>
-            <Button variant="secondary" size="sm" onClick={() => refetch()}>Atualizar código</Button>
+            <p className="text-center text-xs text-muted">{pollExpired ? "O código pode ter expirado." : `Atualizando automaticamente… estado: ${data.state}`}</p>
+            <Button variant="secondary" size="sm" onClick={() => { setPolls(0); setPollExpired(false); void refetch(); }}>{pollExpired ? "Gerar novo código" : "Atualizar código"}</Button>
           </>
         ) : (
           <>
@@ -216,7 +234,7 @@ function WhatsAppCard({ canManage }: { canManage: boolean }) {
 function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
   const { tenant } = useTenant();
   const toast = useToast();
-  const { data, error, loading, refetch, setData } = useQuery(() => api.get<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google`), [tenant.id]);
+  const { data, error, refetch, setData } = useQuery(() => api.get<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google`), [tenant.id]);
   const [busy, setBusy] = useState<string | null>(null);
 
   // Retorno do OAuth: ?google=connected|error&reason=...
@@ -275,7 +293,7 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
       <div className="space-y-3">
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : loading || !data ? (
+        ) : !data ? (
           <Skeleton className="h-24" />
         ) : !data.available ? (
           <p className="text-sm text-muted">Integração não configurada neste ambiente. Fale com o suporte.</p>
@@ -321,7 +339,7 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
   const locked = !access.knowledge;
   const docLimit = access.maxKnowledgeDocuments;
   const toast = useToast();
-  const { data, error, loading, refetch } = useQuery(() => api.get<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge`), [tenant.id]);
+  const { data, error, refetch } = useQuery(() => api.get<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge`), [tenant.id]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
@@ -415,7 +433,7 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
         )}
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : loading || !data ? (
+        ) : !data ? (
           <Skeleton className="h-24" />
         ) : data.items.length === 0 ? (
           <EmptyState title="Nenhum documento ainda" description="Comece com as perguntas que a recepção mais recebe." />
@@ -451,16 +469,17 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
               <input
                 type="file"
                 accept="application/pdf,.pdf,.txt,.md,text/plain,text/markdown"
+                aria-label="Arquivo PDF ou texto para importar"
                 className="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
-              <Input placeholder="Título (opcional; usa o nome do arquivo)" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
+              <Input aria-label="Título do documento importado" placeholder="Título (opcional; usa o nome do arquivo)" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
               <p className="text-xs text-muted">Até 10 MB. PDFs digitalizados são lidos pela IA (até 20 páginas). Textos longos são divididos em partes.</p>
               <Button variant="secondary" onClick={importFile} loading={importing === "file"} disabled={!file}>Importar arquivo</Button>
             </fieldset>
             <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">
               <p className="text-sm font-medium">Importar de uma página pública</p>
-              <Input placeholder="https://suaclinica.com.br/perguntas-frequentes" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && url.trim().length >= 8) void importUrl(); }} />
+              <Input aria-label="Endereço da página pública" placeholder="https://suaclinica.com.br/perguntas-frequentes" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && url.trim().length >= 8) void importUrl(); }} />
               <p className="text-xs text-muted">Página HTML, PDF ou texto acessível sem login. O título vem da página; você pode editar depois removendo e recriando.</p>
               <Button variant="secondary" onClick={importUrl} loading={importing === "url"} disabled={url.trim().length < 8}>Importar página</Button>
             </fieldset>

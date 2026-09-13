@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "@/components/session";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Alert, Badge, Button, ErrorState, Field, Input, PageHeader, Select, Skeleton, Table, Td, Th } from "@/components/ui/primitives";
@@ -18,7 +18,7 @@ export default function TeamPage() {
   const { me } = useSession();
   const toast = useToast();
   const canManage = tenant.role === "OWNER";
-  const { data, error, loading, refetch } = useQuery(() => api.get<{ items: Member[] }>(`clinic/${tenant.id}/team`), [tenant.id]);
+  const { data, error, refetch } = useQuery(() => api.get<{ items: Member[] }>(`clinic/${tenant.id}/team`), [tenant.id]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", role: "STAFF" as TenantRole });
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,13 +43,19 @@ export default function TeamPage() {
     }
   }
 
+  const changing = useRef<Set<string>>(new Set());
+
   async function changeRole(m: Member, role: TenantRole) {
+    if (changing.current.has(m.id)) return;
+    changing.current.add(m.id);
     try {
       await api.patch(`clinic/${tenant.id}/team/${m.id}`, { role });
       toast.success("Papel atualizado.");
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      changing.current.delete(m.id);
     }
   }
 
@@ -85,7 +91,7 @@ export default function TeamPage() {
       </div>
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
-      ) : loading || !data ? (
+      ) : !data ? (
         <Skeleton className="h-48" />
       ) : (
         <Table>

@@ -27,12 +27,18 @@ export default function InboxPage() {
     [tenant.id, unreadOnly],
   );
 
+  const [marking, setMarking] = useState<string | "all" | null>(null);
+
   async function markRead(id?: string) {
+    if (marking) return;
+    setMarking(id ?? "all");
     try {
       await api.post(`clinic/${tenant.id}/notifications/read`, undefined, id ? { id } : undefined);
       await Promise.all([refetch(), reload()]);
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -79,7 +85,7 @@ export default function InboxPage() {
                     )}
                   </div>
                   {!n.readAt && (
-                    <Button size="sm" variant="secondary" onClick={() => markRead(n.id)}>Marcar como lida</Button>
+                    <Button size="sm" variant="secondary" loading={marking === n.id} disabled={!!marking} onClick={() => markRead(n.id)}>Marcar como lida</Button>
                   )}
                 </div>
               </li>
