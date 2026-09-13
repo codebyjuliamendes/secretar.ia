@@ -61,6 +61,10 @@ class Settings(BaseSettings):
 
     super_admin_email: str = ""
 
+    # Confiar em X-Real-IP / X-Forwarded-For (o BFF Next.js e o proxy da plataforma os preenchem). Desligue
+    # se o backend estiver exposto diretamente à internet, senão qualquer cliente forja o IP e zera os limites.
+    trust_proxy_headers: bool = True
+
     # Limites operacionais
     queue_concurrency: int = Field(default=5, ge=1, le=50)
     queue_stuck_minutes: int = 10

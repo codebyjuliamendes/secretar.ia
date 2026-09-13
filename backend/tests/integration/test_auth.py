@@ -21,9 +21,24 @@ async def test_register_login_me_refresh_logout(client, clean_db):
     new_tokens = refreshed.json()
     assert new_tokens["refreshToken"] != tokens["refreshToken"]
 
-    # Rotação: o refresh antigo não pode ser reutilizado, e o reuso revoga toda a família.
+    # Rotação: o refresh antigo não pode ser reutilizado. Reuso IMEDIATO (duas abas renovando juntas) só falha
+    # para quem chegou depois; a sessão renovada continua válida.
     reuse = await client.post("/api/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
     assert reuse.status_code == 401
+    still_ok = await client.post("/api/auth/refresh", json={"refreshToken": new_tokens["refreshToken"]})
+    assert still_ok.status_code == 200
+    new_tokens = still_ok.json()
+    # Reuso TARDIO de um token rotacionado (fora da janela de 30 s) é tratado como roubo: revoga a família.
+    from datetime import UTC, datetime, timedelta
+
+    from app.security.tokens import hash_token
+
+    await clean_db.refreshtoken.update_many(
+        where={"tokenHash": hash_token(tokens["refreshToken"])},
+        data={"revokedAt": datetime.now(UTC) - timedelta(minutes=5)},
+    )
+    late = await client.post("/api/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
+    assert late.status_code == 401
     after_reuse = await client.post("/api/auth/refresh", json={"refreshToken": new_tokens["refreshToken"]})
     assert after_reuse.status_code == 401
 
@@ -123,7 +138,7 @@ async def test_change_password_requires_current(client, clean_db):
         headers=auth_headers(reg),
         json={"currentPassword": "errada999", "newPassword": "Outra1234"},
     )
-    assert wrong.status_code == 401
+    assert wrong.status_code == 400 and wrong.json()["error"]["code"] == "invalid_current_password"
     ok = await client.post(
         "/api/auth/change-password",
         headers=auth_headers(reg),

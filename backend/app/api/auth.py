@@ -13,13 +13,17 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Persistidos no Postgres: valem para todas as réplicas (ADR-008).
 _login_limiter = PostgresRateLimiter("auth.login", limit=get_settings().login_rate_limit_per_minute, window_seconds=60)
+# Teto por conta (independe do IP: fecha spray com IPs rotativos ou X-Forwarded-For forjado) e por IP
+# (fecha "uma senha em mil e-mails", que vira DoS de CPU pelo bcrypt).
+_login_email_limiter = PostgresRateLimiter("auth.login.email", limit=30, window_seconds=600)
+_login_ip_limiter = PostgresRateLimiter("auth.login.ip", limit=100, window_seconds=60)
 _register_limiter = PostgresRateLimiter("auth.register", limit=20, window_seconds=3600)
 _forgot_limiter = PostgresRateLimiter("auth.forgot", limit=5, window_seconds=600)
 
 
 async def reset_rate_limiters() -> None:
     """Usado em testes para isolar cenários; sem efeito em produção."""
-    for limiter in (_login_limiter, _register_limiter, _forgot_limiter):
+    for limiter in (_login_limiter, _login_email_limiter, _login_ip_limiter, _register_limiter, _forgot_limiter):
         await limiter.reset()
 
 
@@ -96,6 +100,8 @@ async def login(
     user_agent: str | None = Header(default=None),
 ):
     ip = client_ip(request)
+    await _limit(_login_ip_limiter, ip)
+    await _limit(_login_email_limiter, data.email.lower())
     await _limit(_login_limiter, f"{ip}:{data.email.lower()}")
     return await auth_service.login(settings, email=data.email, password=data.password, user_agent=user_agent, ip=ip)
 

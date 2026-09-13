@@ -37,3 +37,28 @@ async def test_login_is_rate_limited_per_ip_and_email(client, clean_db, monkeypa
     # Outro e-mail a partir do mesmo IP continua liberado (chave = ip + e-mail).
     other = await client.post("/api/auth/login", json={"email": "outra@example.com", "password": "senha-errada-123"})
     assert other.status_code == 401
+
+
+async def test_login_has_a_per_account_ceiling_independent_of_ip(client, clean_db, monkeypatch):
+    from datetime import UTC, datetime
+
+    from app.security import ratelimit
+
+    monkeypatch.setattr(ratelimit, "window_start", lambda now_ts, window_seconds: datetime(2030, 1, 1, tzinfo=UTC))
+    reg = await register_user(client)
+    bad = {"email": reg["email"], "password": "senha-errada-123"}
+    # 30 tentativas de 30 IPs diferentes (X-Forwarded-For forjado): o limite por e-mail ainda fecha na 31ª.
+    for i in range(30):
+        res = await client.post(
+            "/api/auth/login", json=bad, headers={"X-Forwarded-For": f"10.0.{i // 250}.{i % 250 + 1}"}
+        )
+        assert res.status_code == 401, (i, res.text)
+    blocked = await client.post("/api/auth/login", json=bad, headers={"X-Forwarded-For": "10.9.9.9"})
+    assert blocked.status_code == 429
+    # A senha certa também é barrada até a janela virar (é o comportamento esperado de um teto por conta).
+    ok_but_blocked = await client.post(
+        "/api/auth/login",
+        json={"email": reg["email"], "password": reg["password"]},
+        headers={"X-Forwarded-For": "10.9.9.8"},
+    )
+    assert ok_but_blocked.status_code == 429

@@ -160,14 +160,24 @@ async def login(settings: Settings, *, email: str, password: str, user_agent: st
     return {**tokens, "user": await me(user.id)}
 
 
+REFRESH_REUSE_GRACE = timedelta(seconds=30)
+
+
 async def refresh(settings: Settings, *, refresh_token: str, user_agent: str | None, ip: str | None) -> dict:
     row = await db.refreshtoken.find_unique(where={"tokenHash": hash_token(refresh_token)}, include={"user": True})
     now = datetime.now(UTC)
     if row is None or row.revokedAt is not None or row.expiresAt < now or row.user is None:
         if row is not None and row.revokedAt is not None:
-            # Reuso de token já rotacionado: possível roubo. Revoga toda a família do usuário.
-            await db.refreshtoken.update_many(where={"userId": row.userId, "revokedAt": None}, data={"revokedAt": now})
-            log.warning("refresh_token_reuse_detected", user_id=row.userId)
+            if now - row.revokedAt <= REFRESH_REUSE_GRACE:
+                # Duas abas/requisições renovaram ao mesmo tempo com o mesmo token: não é roubo. Só esta falha;
+                # a sessão renovada pela outra continua válida.
+                log.info("refresh_token_concurrent_reuse", user_id=row.userId)
+            else:
+                # Reuso de token já rotacionado há tempo: possível roubo. Revoga toda a família do usuário.
+                await db.refreshtoken.update_many(
+                    where={"userId": row.userId, "revokedAt": None}, data={"revokedAt": now}
+                )
+                log.warning("refresh_token_reuse_detected", user_id=row.userId)
         raise UnauthorizedError("Sessão inválida ou expirada.", code="invalid_refresh")
     await db.refreshtoken.update(where={"id": row.id}, data={"revokedAt": now})
     tokens = await issue_tokens(settings, row.user, user_agent=user_agent, ip=ip)
@@ -244,7 +254,8 @@ async def change_password(user_id: str, *, current_password: str, new_password: 
         raise AppError(err, code="weak_password")
     user = await db.user.find_unique(where={"id": user_id})
     if user is None or not await verify_password_async(current_password, user.passwordHash):
-        raise UnauthorizedError("Senha atual incorreta.", code="invalid_credentials")
+        # 400, não 401: um 401 faria o BFF encerrar a sessão de quem só errou a senha atual.
+        raise AppError("Senha atual incorreta.", code="invalid_current_password")
     password_hash = await hash_password_async(new_password)
     now = datetime.now(UTC)
     async with db.tx() as tx:

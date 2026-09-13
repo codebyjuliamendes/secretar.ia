@@ -40,9 +40,13 @@ class TenantContext:
 
 
 def client_ip(request: Request) -> str | None:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()[:64]
+    if get_settings().trust_proxy_headers:
+        real = request.headers.get("x-real-ip")
+        if real:
+            return real.strip()[:64]
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()[:64]
     return request.client.host if request.client else None
 
 

@@ -142,6 +142,7 @@ Backend (`backend/.env.example`):
 | `CRON_SECRET` | sim | `Authorization: Bearer` dos endpoints `/api/internal/cron/*` (`upsell`, `daily`, `pull-calendar`; o scheduler interno já dispara todos) |
 | `SMTP_*` | para e-mail real | transacional (verificação, reset, convites) |
 | `SUPER_ADMIN_EMAIL` | não | promove este e-mail a SUPER_ADMIN na inicialização |
+| `TRUST_PROXY_HEADERS` | não (padrão `true`) | usa `X-Real-IP`/`X-Forwarded-For` (preenchidos pelo BFF e pelo proxy da plataforma) para rate limit e auditoria; desligue se o backend for exposto diretamente à internet |
 
 Frontend (`web/.env.example`): `API_URL` (somente servidor) e `COOKIE_SECURE`.
 

@@ -8,7 +8,15 @@ import type { Me } from "@/lib/types";
 import { Alert, Button, Field, Input } from "@/components/ui/primitives";
 
 function safeNext(value: string | null) {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/app";
+  // Só caminhos da própria origem. `new URL` resolve truques como "/\\evil.com" (a barra invertida vira "/").
+  if (!value || !value.startsWith("/")) return "/app";
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin) return "/app";
+    return url.pathname + url.search;
+  } catch {
+    return "/app";
+  }
 }
 
 function LoginForm() {
