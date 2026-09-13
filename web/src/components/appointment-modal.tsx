@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { Alert, Button, Field, Input, Select } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { toLocalInputValue } from "@/lib/format";
+import { localInputToUtc, utcToLocalInput } from "@/lib/tz";
 import type { Service } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
@@ -30,6 +30,7 @@ export function NewAppointmentModal({
 
 function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Date; onClose: () => void; onCreated: () => void }) {
   const { tenant } = useTenant();
+  const tz = tenant.timezone || "America/Sao_Paulo";
   const toast = useToast();
   const { data: servicesData } = useQuery(() => api.get<{ items: Service[] }>(`clinic/${tenant.id}/services`, { active: true }), [tenant.id]);
   const services = servicesData?.items ?? [];
@@ -39,7 +40,7 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
     serviceId: "",
     service: "",
     duration: "60",
-    date: toLocalInputValue(initialDate?.toISOString()),
+    date: utcToLocalInput(initialDate ?? new Date(), tz),
     price: "",
     notes: "",
   }));
@@ -67,7 +68,7 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
         patientName: form.patientName || null,
         service: form.service,
         serviceId: form.serviceId || null,
-        date: new Date(form.date).toISOString(),
+        date: localInputToUtc(form.date, tz).toISOString(), // horário digitado é no fuso da clínica
         durationMin: Number(form.duration) || null,
         priceCents: form.price ? Math.round(Number(form.price.replace(",", ".")) * 100) : null,
         notes: form.notes || null,
@@ -110,7 +111,7 @@ function AppointmentForm({ initialDate, onClose, onCreated }: { initialDate?: Da
         <Field label="Procedimento" htmlFor="service" required>
           <Input id="service" required minLength={2} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value, serviceId: "" })} />
         </Field>
-        <Field label="Data e hora" htmlFor="date" required>
+        <Field label="Data e hora" htmlFor="date" required hint={`Horário de ${tz}.`}>
           <Input id="date" type="datetime-local" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
         </Field>
         <Field label="Duração (min)" htmlFor="duration" required>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE } from "@/lib/format";
 import type { Me, TenantRole, TenantSummary } from "@/lib/types";
@@ -34,6 +34,23 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [resending, setResending] = useState(false);
   const base = `/app/${tenant.id}`;
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  // Menu lateral no celular: Escape fecha, foco entra no menu ao abrir e volta ao botão ao fechar.
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    drawerRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      openerRef.current?.focus?.();
+    };
+  }, [open]);
 
   const allNav: NavItem[] = [
     { href: base, label: "Visão geral" },
@@ -141,7 +158,7 @@ export function AppShell({
       <aside className="hidden w-64 shrink-0 border-r border-border bg-surface lg:block">{sidebar}</aside>
       {open && (
         <div className="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <div className="w-72 max-w-[85vw] bg-surface shadow-xl">{sidebar}</div>
+          <div ref={drawerRef} className="w-72 max-w-[85vw] overflow-y-auto bg-surface shadow-xl">{sidebar}</div>
           <button className="flex-1 bg-black/50" aria-label="Fechar menu" onClick={() => setOpen(false)} />
         </div>
       )}

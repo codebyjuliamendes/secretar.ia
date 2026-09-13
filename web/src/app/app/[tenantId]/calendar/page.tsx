@@ -7,26 +7,13 @@ import { Badge, Button, ErrorState, PageHeader, Skeleton, cx } from "@/component
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { APPT_LABEL, APPT_TONE } from "@/lib/format";
+import { addCalendarDays, dayOfKey, dayStartUtc, formatInZone, minutesInZone, mondayKey, zonedParts, zonedToUtc } from "@/lib/tz";
 import type { AppointmentStatus, CalendarData } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
 const DAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 const PX_PER_MIN = 1.1;
-
-function startOfWeek(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  const wd = (x.getDay() + 6) % 7; // segunda = 0
-  x.setDate(x.getDate() - wd);
-  return x;
-}
-
-function addDays(d: Date, n: number) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n); // em dias de calendário: não deriva 1 h na virada do horário de verão
-  return x;
-}
 
 /** Distribui blocos que se sobrepõem em colunas lado a lado (encaixes com `force` não se escondem). */
 function layoutColumns<T extends { start: string; end: string }>(items: T[]) {
@@ -54,10 +41,6 @@ function layoutColumns<T extends { start: string; end: string }>(items: T[]) {
   return placed;
 }
 
-function minutesOf(d: Date) {
-  return d.getHours() * 60 + d.getMinutes();
-}
-
 function hhmmToMin(v: string) {
   const [h, m] = v.split(":").map(Number);
   return h * 60 + m;
@@ -74,14 +57,17 @@ const STATUS_BG: Record<AppointmentStatus, string> = {
 export default function CalendarPage() {
   const { tenant } = useTenant();
   const toast = useToast();
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  // Tudo aqui é no fuso da CLÍNICA: a grade, o "agora", o clique no horário e o que vai para o servidor.
+  const tz = tenant.timezone || "America/Sao_Paulo";
+  const [weekKey, setWeekKey] = useState(() => mondayKey(new Date(), tz));
   const [modal, setModal] = useState<{ open: boolean; date?: Date }>({ open: false });
   const [showCanceled, setShowCanceled] = useState(false);
-  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const weekStart = useMemo(() => dayStartUtc(weekKey, tz), [weekKey, tz]);
+  const weekEnd = useMemo(() => dayStartUtc(addCalendarDays(weekKey, 7), tz), [weekKey, tz]);
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { data, error, loading, refetch } = useQuery(
     () => api.get<CalendarData>(`clinic/${tenant.id}/calendar`, { from: weekStart.toISOString(), to: weekEnd.toISOString() }),
-    [tenant.id, weekStart.getTime()],
+    [tenant.id, weekKey],
   );
 
   const range = useMemo(() => {
@@ -89,19 +75,20 @@ export default function CalendarPage() {
     let min = rules.length ? Math.min(...rules.map((r) => hhmmToMin(r.start))) : 8 * 60;
     let max = rules.length ? Math.max(...rules.map((r) => hhmmToMin(r.end))) : 19 * 60;
     for (const a of data?.appointments ?? []) {
-      min = Math.min(min, minutesOf(new Date(a.start)));
-      max = Math.max(max, minutesOf(new Date(a.end)) || max);
+      min = Math.min(min, minutesInZone(new Date(a.start), tz));
+      max = Math.max(max, minutesInZone(new Date(a.end), tz) || max);
     }
     min = Math.max(0, Math.floor(min / 60) * 60 - 60);
     max = Math.min(24 * 60, Math.ceil(max / 60) * 60 + 60);
     return { min, max };
-  }, [data]);
+  }, [data, tz]);
 
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const dayKeys = Array.from({ length: 7 }, (_, i) => addCalendarDays(weekKey, i));
   const hours: number[] = [];
   for (let m = range.min; m < range.max; m += 60) hours.push(m);
   const height = (range.max - range.min) * PX_PER_MIN;
   const now = new Date();
+  const todayKey = zonedParts(now, tz).dateKey;
 
   async function quickStatus(id: string, status: AppointmentStatus) {
     try {
@@ -113,17 +100,21 @@ export default function CalendarPage() {
     }
   }
 
-  function onSlotClick(day: Date, e: React.MouseEvent<HTMLDivElement>) {
+  function atMinutes(dayKey: string, minutes: number) {
+    const [y, m, d] = dayKey.split("-").map(Number);
+    return zonedToUtc(y, m, d, Math.floor(minutes / 60), minutes % 60, tz);
+  }
+
+  function onSlotClick(dayKey: string, e: React.MouseEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     const minutes = range.min + (e.clientY - rect.top) / PX_PER_MIN;
     const step = data?.slotMinutes ?? 30;
     const snapped = Math.floor(minutes / step) * step;
-    const date = new Date(day);
-    date.setHours(Math.floor(snapped / 60), snapped % 60, 0, 0);
-    setModal({ open: true, date });
+    setModal({ open: true, date: atMinutes(dayKey, snapped) });
   }
 
   const visible = (data?.appointments ?? []).filter((a) => showCanceled || a.status !== "CANCELED");
+  const fmtDay = (key: string, opts: Intl.DateTimeFormatOptions) => formatInZone(dayStartUtc(key, tz), tz, opts);
 
   return (
     <>
@@ -132,20 +123,20 @@ export default function CalendarPage() {
         description="Semana da clínica. Clique em um horário livre para criar um agendamento."
         action={
           <>
-            <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(addDays(weekStart, -7)))} aria-label="Semana anterior">‹</Button>
-            <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(new Date()))}>Hoje</Button>
-            <Button variant="secondary" onClick={() => setWeekStart(startOfWeek(addDays(weekStart, 7)))} aria-label="Próxima semana">›</Button>
+            <Button variant="secondary" onClick={() => setWeekKey(addCalendarDays(weekKey, -7))} aria-label="Semana anterior">‹</Button>
+            <Button variant="secondary" onClick={() => setWeekKey(mondayKey(new Date(), tz))}>Hoje</Button>
+            <Button variant="secondary" onClick={() => setWeekKey(addCalendarDays(weekKey, 7))} aria-label="Próxima semana">›</Button>
             <Button onClick={() => setModal({ open: true })}>Novo agendamento</Button>
           </>
         }
       />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
         <span>
-          {weekStart.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} a {new Date(weekEnd.getTime() - 1).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+          {fmtDay(weekKey, { day: "2-digit", month: "short" })} a {fmtDay(addCalendarDays(weekKey, 6), { day: "2-digit", month: "short", year: "numeric" })}
           {data && <> · fuso {data.timezone} · passo {data.slotMinutes} min</>}
         </span>
-        {data && browserTz !== data.timezone && (
-          <span className="basis-full text-warning">Seu computador está no fuso {browserTz}; a grade e os horários são mostrados nele, não no fuso da clínica ({data.timezone}).</span>
+        {browserTz !== tz && (
+          <span className="basis-full text-warning">Seu computador está no fuso {browserTz}; a agenda está no fuso da clínica ({tz}).</span>
         )}
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={showCanceled} onChange={(e) => setShowCanceled(e.target.checked)} /> mostrar cancelados
@@ -159,14 +150,11 @@ export default function CalendarPage() {
         <div className="overflow-x-auto rounded-xl border border-border bg-surface">
           <div className="grid min-w-[880px]" style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}>
             <div className="border-b border-border" />
-            {days.map((d) => {
-              const isToday = d.toDateString() === now.toDateString();
-              return (
-                <div key={d.toISOString()} className={cx("border-b border-l border-border px-2 py-2 text-center text-xs font-medium", isToday && "text-primary")}>
-                  {DAY_LABELS[(d.getDay() + 6) % 7]} <span className="text-muted">{d.getDate().toString().padStart(2, "0")}</span>
-                </div>
-              );
-            })}
+            {dayKeys.map((key, wd) => (
+              <div key={key} className={cx("border-b border-l border-border px-2 py-2 text-center text-xs font-medium", key === todayKey && "text-primary")}>
+                {DAY_LABELS[wd]} <span className="text-muted">{String(dayOfKey(key)).padStart(2, "0")}</span>
+              </div>
+            ))}
             <div className="relative" style={{ height }}>
               {hours.map((m) => (
                 <div key={m} className="absolute right-1 -translate-y-1/2 text-[10px] text-muted" style={{ top: (m - range.min) * PX_PER_MIN }}>
@@ -174,26 +162,21 @@ export default function CalendarPage() {
                 </div>
               ))}
             </div>
-            {days.map((d) => {
-              const wd = (d.getDay() + 6) % 7;
+            {dayKeys.map((key, wd) => {
               const dayRules = (data?.rules ?? []).filter((r) => r.weekday === wd);
-              const dayAppts = visible.filter((a) => new Date(a.start).toDateString() === d.toDateString());
-              const dayExternal = (data?.external ?? []).filter((x) => {
-                const s = new Date(x.start);
-                const e = new Date(x.end);
-                const dayStart = new Date(d);
-                const dayEnd = new Date(d.getTime() + 86400000);
-                return s < dayEnd && e > dayStart;
-              });
+              const dayStart = dayStartUtc(key, tz);
+              const dayEnd = dayStartUtc(addCalendarDays(key, 1), tz);
+              const dayAppts = visible.filter((a) => zonedParts(new Date(a.start), tz).dateKey === key);
+              const dayExternal = (data?.external ?? []).filter((x) => new Date(x.start) < dayEnd && new Date(x.end) > dayStart);
               return (
                 <div
-                  key={d.toISOString()}
+                  key={key}
                   role="button"
                   tabIndex={0}
-                  aria-label={`Criar agendamento em ${d.toLocaleDateString("pt-BR")}`}
-                  onClick={(e) => onSlotClick(d, e)}
+                  aria-label={`Criar agendamento em ${fmtDay(key, { day: "2-digit", month: "2-digit", year: "numeric" })}`}
+                  onClick={(e) => onSlotClick(key, e)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") setModal({ open: true, date: new Date(d.getTime() + range.min * 60000) });
+                    if (e.key === "Enter") setModal({ open: true, date: atMinutes(key, range.min) });
                   }}
                   className="relative cursor-pointer border-l border-border bg-surface-2/40"
                   style={{ height }}
@@ -204,16 +187,14 @@ export default function CalendarPage() {
                   {hours.map((m) => (
                     <div key={m} aria-hidden className="absolute inset-x-0 border-t border-border/60" style={{ top: (m - range.min) * PX_PER_MIN }} />
                   ))}
-                  {d.toDateString() === now.toDateString() && (
-                    <div aria-hidden className="absolute inset-x-0 border-t-2 border-primary" style={{ top: (minutesOf(now) - range.min) * PX_PER_MIN }} />
+                  {key === todayKey && (
+                    <div aria-hidden className="absolute inset-x-0 border-t-2 border-primary" style={{ top: (minutesInZone(now, tz) - range.min) * PX_PER_MIN }} />
                   )}
                   {dayExternal.map((x) => {
                     const s = new Date(x.start);
                     const e = new Date(x.end);
-                    const dayStart = new Date(d);
-                    const dayEnd = new Date(d.getTime() + 86400000);
-                    const fromMin = s <= dayStart ? range.min : minutesOf(s);
-                    const toMin = e >= dayEnd ? range.max : minutesOf(e);
+                    const fromMin = s <= dayStart ? range.min : minutesInZone(s, tz);
+                    const toMin = e >= dayEnd ? range.max : minutesInZone(e, tz);
                     const top = (fromMin - range.min) * PX_PER_MIN;
                     const h = Math.max(22, (toMin - fromMin) * PX_PER_MIN - 2);
                     return (
@@ -224,7 +205,7 @@ export default function CalendarPage() {
                         style={{ top, height: h, backgroundImage: "repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.05) 6px 8px)" }}
                         title={`${x.summary ?? "Compromisso"} · Google Calendar`}
                       >
-                        <p className="truncate font-semibold">{x.allDay ? "Dia todo" : s.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · Google</p>
+                        <p className="truncate font-semibold">{x.allDay ? "Dia todo" : formatInZone(s, tz, { hour: "2-digit", minute: "2-digit" })} · Google</p>
                         <p className="truncate">{x.summary ?? "Compromisso"}</p>
                       </div>
                     );
@@ -232,7 +213,7 @@ export default function CalendarPage() {
                   {layoutColumns(dayAppts).map(({ item: a, col, cols }) => {
                     const s = new Date(a.start);
                     const e = new Date(a.end);
-                    const top = (minutesOf(s) - range.min) * PX_PER_MIN;
+                    const top = (minutesInZone(s, tz) - range.min) * PX_PER_MIN;
                     const h = Math.max(22, ((e.getTime() - s.getTime()) / 60000) * PX_PER_MIN - 2);
                     const width = `calc((100% - 8px) / ${cols})`;
                     const left = `calc(4px + (100% - 8px) * ${col} / ${cols})`;
@@ -246,7 +227,7 @@ export default function CalendarPage() {
                         style={{ top, height: h, left, width }}
                         title={`${a.service} · ${a.patient?.name ?? a.patient?.phone ?? ""} · ${APPT_LABEL[a.status]}`}
                       >
-                        <p className="truncate font-semibold">{s.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} {a.patient?.name ?? a.patient?.phone ?? "Paciente"}</p>
+                        <p className="truncate font-semibold">{formatInZone(s, tz, { hour: "2-digit", minute: "2-digit" })} {a.patient?.name ?? a.patient?.phone ?? "Paciente"}</p>
                         <p className="truncate">{a.service}{a.source === "AI" && " · IA"}</p>
                         {h > 60 && (
                           <div className="mt-1 hidden gap-1 group-hover:flex group-focus-within:flex">

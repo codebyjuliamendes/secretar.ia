@@ -27,16 +27,16 @@ const ACTION_LABEL: Record<string, string> = {
 
 export default function AuditPage() {
   const { tenant } = useTenant();
-  const [items, setItems] = useState<AuditEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [extra, setExtra] = useState<{ items: AuditEntry[]; cursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
-  const { error, loading, refetch } = useQuery(async () => {
-    const r = await api.get<{ items: AuditEntry[]; nextCursor: string | null }>(`clinic/${tenant.id}/audit`, { limit: 50 });
-    setItems(r.items);
-    setCursor(r.nextCursor);
-    return r;
-  }, [tenant.id]);
+  const { data, error, loading, refetch } = useQuery(
+    () => api.get<{ items: AuditEntry[]; nextCursor: string | null }>(`clinic/${tenant.id}/audit`, { limit: 50 }),
+    [tenant.id],
+  );
+  // Primeira página vem do useQuery (protegida contra respostas fora de ordem); as seguintes acumulam aqui.
+  const items = [...(data?.items ?? []), ...(extra?.items ?? [])];
+  const cursor = extra ? extra.cursor : (data?.nextCursor ?? null);
 
   async function more() {
     if (!cursor) return;
@@ -44,8 +44,7 @@ export default function AuditPage() {
     setMoreError(null);
     try {
       const r = await api.get<{ items: AuditEntry[]; nextCursor: string | null }>(`clinic/${tenant.id}/audit`, { limit: 50, cursor });
-      setItems((prev) => [...prev, ...r.items]);
-      setCursor(r.nextCursor);
+      setExtra((prev) => ({ items: [...(prev?.items ?? []), ...r.items], cursor: r.nextCursor }));
     } catch (err) {
       setMoreError(errorMessage(err));
     } finally {

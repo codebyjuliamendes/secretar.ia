@@ -189,15 +189,22 @@ async def update_details(
         raise AppError("Nada para atualizar.", code="empty_update")
     new_date = payload.get("date", appt.date)
     new_duration = payload.get("durationMin", appt.durationMin or scheduling.DEFAULT_DURATION_MIN)
-    if "date" in payload or "durationMin" in payload:
+    reschedule = "date" in payload or "durationMin" in payload
+    if reschedule:
         payload["endAt"] = new_date + timedelta(minutes=new_duration)
-        if not force and str(appt.status) in scheduling.BLOCKING_STATUSES:
-            available, reason = await scheduling.check_availability(tenant, new_date, new_duration, exclude_id=appt.id)
-            if not available and reason != "past":
-                raise ConflictError(
-                    "Horário indisponível para remarcação.", code="slot_unavailable", details={"reason": reason}
+    async with db.tx() as tx:
+        if reschedule:
+            # Mesma trava da criação: duas remarcações/criações simultâneas não ocupam o mesmo horário.
+            await scheduling.lock_tenant_agenda(tx, tenant_id)
+            if not force and str(appt.status) in scheduling.BLOCKING_STATUSES:
+                available, reason = await scheduling.check_availability(
+                    tenant, new_date, new_duration, exclude_id=appt.id
                 )
-    updated = await db.appointment.update(where={"id": appt.id}, data=payload, include={"patient": True})
+                if not available and reason != "past":
+                    raise ConflictError(
+                        "Horário indisponível para remarcação.", code="slot_unavailable", details={"reason": reason}
+                    )
+        updated = await tx.appointment.update(where={"id": appt.id}, data=payload, include={"patient": True})
     await audit.record(
         action="appointment.updated",
         resource_type="appointment",
