@@ -65,6 +65,12 @@ export const ROLE_LABEL: Record<TenantRole, string> = {
   STAFF: "Recepção",
 };
 
+/** Link do WhatsApp comercial com mensagem pronta; null quando o contato não está configurado. */
+export function salesLink(sales: { whatsapp: string } | undefined, text: string): string | null {
+  if (!sales?.whatsapp) return null;
+  return `https://wa.me/${sales.whatsapp}?text=${encodeURIComponent(text)}`;
+}
+
 export const PLAN_LABEL: Record<Plan, string> = {
   BASIC: "Essencial",
   PRO: "Profissional",

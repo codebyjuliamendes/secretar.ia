@@ -190,3 +190,16 @@ async def test_niche_suggests_the_tone_unless_the_customer_chose_one(client, cle
     r = await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"niche": "psicologia"})
     assert r.status_code == 200
     assert (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()["tone"] == "objetivo"
+
+
+async def test_public_config_lists_plans_niches_and_sales_contact(client):
+    r = await client.get("/api/public/config")
+    assert r.status_code == 200
+    body = r.json()
+    assert [p["plan"] for p in body["plans"]] == ["BASIC", "PRO", "PREMIUM", "ENTERPRISE"]
+    assert {n["key"] for n in body["niches"]} >= {"clinica", "pet", "advocacia"}
+    assert (
+        set(body["sales"]) == {"whatsapp", "name"}
+        and body["sales"]["whatsapp"].isdigit()
+        or body["sales"]["whatsapp"] == ""
+    )

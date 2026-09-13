@@ -259,6 +259,18 @@ export interface Billing {
   purchasablePlans: Plan[];
   usage: Usage;
   plans: PlanLimits[];
+  sales: SalesContact;
+}
+
+export interface SalesContact {
+  whatsapp: string; // só dígitos com DDI; vazio = não configurado
+  name: string;
+}
+
+export interface PublicConfig {
+  plans: PlanLimits[];
+  niches: { key: string; label: string }[];
+  sales: SalesContact;
 }
 
 export type KnowledgeSource = "text" | "pdf" | "url" | "file";

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, ErrorState, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Card, ErrorState, LinkButton, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, limitLabel } from "@/lib/format";
+import { PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, limitLabel, salesLink } from "@/lib/format";
 import type { Billing, Plan } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
@@ -66,6 +66,9 @@ export default function BillingPage() {
   }
 
   const hasSubscription = !!data?.subscriptionId && (data.status === "ACTIVE" || data.status === "PAST_DUE");
+  const talk = salesLink(data?.sales, `Olá! Sou de ${tenant.name} e quero falar sobre o plano Enterprise da Secretar.ia.`);
+  const talkAbout = salesLink(data?.sales, `Olá! Sou de ${tenant.name} e quero falar sobre o plano da Secretar.ia.`);
+  const salesName = data?.sales.name || "a equipe";
 
   return (
     <>
@@ -97,7 +100,12 @@ export default function BillingPage() {
             )}
             {!data.checkoutEnabled && !data.subscriptionId && (
               <div className="mt-4">
-                <Alert tone="info">Para contratar ou alterar o plano, fale com nossa equipe. A cobrança é feita via Stripe e o plano é atualizado automaticamente após a confirmação do pagamento.</Alert>
+                <Alert tone="info">
+                  <span className="flex flex-wrap items-center justify-between gap-3">
+                    <span>Para contratar ou alterar o plano, fale com {salesName}. A liberação é feita na hora, sem cartão.</span>
+                    {talkAbout && <LinkButton href={talkAbout} external size="sm">Falar com {salesName} no WhatsApp</LinkButton>}
+                  </span>
+                </Alert>
               </div>
             )}
             {data.checkoutEnabled && !canManage && !data.subscriptionId && (
@@ -118,7 +126,8 @@ export default function BillingPage() {
             {data.plans.map((p) => {
               const current = p.plan === data.plan;
               const purchasable = data.purchasablePlans.includes(p.plan);
-              const showAction = canManage && data.checkoutEnabled && !current && (purchasable || hasSubscription);
+              const enterprise = p.plan === "ENTERPRISE";
+              const showAction = !enterprise && canManage && data.checkoutEnabled && !current && (purchasable || hasSubscription);
               return (
                 <div key={p.plan} className={cx("flex flex-col rounded-xl border bg-surface p-5", current ? "border-primary" : "border-border")}>
                   <div className="flex items-center justify-between"><h3 className="font-semibold">{PLAN_LABEL[p.plan]}</h3>{current && <Badge tone="primary">atual</Badge>}</div>
@@ -140,8 +149,15 @@ export default function BillingPage() {
                       ) : null}
                     </div>
                   )}
-                  {p.plan === "ENTERPRISE" && !current && (
-                    <p className="mt-4 text-xs text-muted">Fale com nossa equipe para condições sob medida.</p>
+                  {enterprise && !current && (
+                    <div className="mt-4 space-y-2 pt-1">
+                      <p className="text-xs text-muted">Sob medida: volume, integrações e atendimento combinados em conversa.</p>
+                      {talk ? (
+                        <LinkButton href={talk} external size="sm" className="w-full">Falar com {salesName}</LinkButton>
+                      ) : (
+                        <p className="text-xs text-muted">Fale com nossa equipe.</p>
+                      )}
+                    </div>
                   )}
                 </div>
               );

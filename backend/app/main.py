@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import jobs  # noqa: F401 - garante registro das tarefas
-from app.api import admin, auth, clinic, integrations, internal, webhooks
+from app.api import admin, auth, clinic, integrations, internal, public, webhooks
 from app.config import get_settings
 from app.db import db
 from app.errors import register_exception_handlers
@@ -115,6 +115,7 @@ def create_app(*, run_background: bool = True) -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
     app.include_router(clinic.router, prefix="/api")
+    app.include_router(public.router, prefix="/api")
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(integrations.router, prefix="/api")
     return app

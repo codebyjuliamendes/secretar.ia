@@ -55,16 +55,19 @@ export function LinkButton({
   size = "md",
   className,
   children,
+  external = false,
 }: {
   href: string;
   variant?: Variant;
   size?: Size;
   className?: string;
   children: ReactNode;
+  external?: boolean;
 }) {
   return (
     <Link
       href={href}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       className={cx(
         "inline-flex items-center justify-center gap-2 rounded-lg border font-medium transition-colors",
         VARIANT[variant],

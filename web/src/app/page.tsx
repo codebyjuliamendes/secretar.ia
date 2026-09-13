@@ -1,4 +1,6 @@
+import { Pricing } from "@/components/pricing";
 import { LinkButton } from "@/components/ui/primitives";
+import { getPublicConfig } from "@/lib/server/public-config";
 
 const FEATURES = [
   {
@@ -19,7 +21,8 @@ const FEATURES = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const config = await getPublicConfig();
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
@@ -61,6 +64,8 @@ export default function Home() {
           </div>
         ))}
       </section>
+
+      <Pricing config={config} people="pacientes" />
 
       <footer className="mt-12 text-center text-xs text-muted">© {new Date().getFullYear()} Secretar.ia</footer>
     </main>

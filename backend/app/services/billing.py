@@ -207,6 +207,12 @@ def price_id_for(settings: Settings, plan: Plan) -> str:
     }.get(plan, "")
 
 
+def sales_contact(settings: Settings) -> dict[str, str]:
+    """Quem o cliente procura para Enterprise ou condições fora do checkout."""
+    digits = "".join(ch for ch in settings.sales_whatsapp if ch.isdigit())
+    return {"whatsapp": digits, "name": settings.sales_contact_name}
+
+
 def checkout_enabled(settings: Settings) -> bool:
     """Em produção exige chave do Stripe; em dev/test o provider console permite exercitar o fluxo."""
     return bool(settings.stripe_secret_key) or not settings.is_production_like
@@ -230,6 +236,7 @@ async def billing_overview(settings: Settings, tenant) -> dict[str, Any]:
         "purchasablePlans": purchasable_plans(settings),
         "usage": await usage_summary(tenant),
         "plans": [plan_public_view(p) for p in Plan],
+        "sales": sales_contact(settings),
     }
 
 

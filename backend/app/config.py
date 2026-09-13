@@ -62,6 +62,11 @@ class Settings(BaseSettings):
 
     super_admin_email: str = ""
 
+    # Contato comercial: WhatsApp (só dígitos, com DDI, ex.: 5581999998888) e nome de quem atende.
+    # Aparece no botão "Falar com a Júlia" do plano Enterprise e no rodapé da landing.
+    sales_whatsapp: str = ""
+    sales_contact_name: str = "Júlia"
+
     # Confiar em X-Real-IP / X-Forwarded-For (o BFF Next.js e o proxy da plataforma os preenchem). Desligue
     # se o backend estiver exposto diretamente à internet, senão qualquer cliente forja o IP e zera os limites.
     trust_proxy_headers: bool = True
