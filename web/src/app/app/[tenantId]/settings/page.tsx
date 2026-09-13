@@ -5,7 +5,7 @@ import { AvailabilityCard, ServicesCard } from "@/components/scheduling-settings
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageHeader, Skeleton, Switch, Textarea } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, TenantSettings, WhatsAppStatus } from "@/lib/types";
+import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, KnowledgeSource, TenantSettings, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -310,6 +310,8 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
   );
 }
 
+const SOURCE_LABEL: Record<KnowledgeSource, string> = { text: "Texto", pdf: "PDF", url: "Página", file: "Arquivo" };
+
 function KnowledgeCard({ canManage, access }: { canManage: boolean; access: FeatureAccess }) {
   const { tenant } = useTenant();
   const locked = !access.knowledge;
@@ -322,6 +324,43 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
   const [deleting, setDeleting] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ title: string; content: string }[] | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileTitle, setFileTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [importing, setImporting] = useState<"file" | "url" | null>(null);
+
+  async function importFile() {
+    if (!file) return;
+    setImporting("file");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (fileTitle.trim()) form.append("title", fileTitle.trim());
+      const r = await api.upload<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge/upload`, form);
+      setFile(null);
+      setFileTitle("");
+      toast.success(r.items.length > 1 ? `Arquivo importado em ${r.items.length} partes.` : "Arquivo importado para a base de conhecimento.");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setImporting(null);
+    }
+  }
+
+  async function importUrl() {
+    setImporting("url");
+    try {
+      const r = await api.post<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge/import-url`, { url: url.trim() });
+      setUrl("");
+      toast.success(r.items.length > 1 ? `Página importada em ${r.items.length} partes.` : "Página importada para a base de conhecimento.");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setImporting(null);
+    }
+  }
 
   async function add() {
     setSaving(true);
@@ -382,8 +421,11 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
             {data.items.map((d) => (
               <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
                 <div className="min-w-0">
-                  <p className="truncate font-medium">{d.title}</p>
-                  <p className="text-xs text-muted">{d.chars.toLocaleString("pt-BR")} caracteres · {d.chunkCount} trecho(s) · {d.embedded ? "busca semântica" : "busca por palavras"}</p>
+                  <p className="flex items-center gap-2 truncate font-medium">
+                    <span className="truncate">{d.title}</span>
+                    {d.source !== "text" && <Badge tone="neutral">{SOURCE_LABEL[d.source]}</Badge>}
+                  </p>
+                  <p className="truncate text-xs text-muted" title={d.sourceRef ?? undefined}>{d.chars.toLocaleString("pt-BR")} caracteres · {d.chunkCount} trecho(s) · {d.embedded ? "busca semântica" : "busca por palavras"}{d.sourceRef ? ` · ${d.sourceRef}` : ""}</p>
                 </div>
                 {canManage && <Button variant="ghost" size="sm" loading={deleting === d.id} onClick={() => remove(d.id)}>Remover</Button>}
               </li>
@@ -398,6 +440,28 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
             </Field>
             <Button onClick={add} loading={saving} disabled={title.trim().length < 2 || content.trim().length < 20}>Adicionar documento</Button>
           </fieldset>
+        )}
+        {canManage && !locked && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">
+              <p className="text-sm font-medium">Importar PDF ou arquivo de texto</p>
+              <input
+                type="file"
+                accept="application/pdf,.pdf,.txt,.md,text/plain,text/markdown"
+                className="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              <Input placeholder="Título (opcional; usa o nome do arquivo)" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
+              <p className="text-xs text-muted">Até 10 MB. PDFs digitalizados (sem texto) não são lidos. Textos longos são divididos em partes.</p>
+              <Button variant="secondary" onClick={importFile} loading={importing === "file"} disabled={!file}>Importar arquivo</Button>
+            </fieldset>
+            <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">
+              <p className="text-sm font-medium">Importar de uma página pública</p>
+              <Input placeholder="https://suaclinica.com.br/perguntas-frequentes" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && url.trim().length >= 8) void importUrl(); }} />
+              <p className="text-xs text-muted">Página HTML, PDF ou texto acessível sem login. O título vem da página; você pode editar depois removendo e recriando.</p>
+              <Button variant="secondary" onClick={importUrl} loading={importing === "url"} disabled={url.trim().length < 8}>Importar página</Button>
+            </fieldset>
+          </div>
         )}
         {data && data.items.length > 0 && !locked && (
           <div className="space-y-2">

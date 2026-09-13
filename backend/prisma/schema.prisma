@@ -375,6 +375,8 @@ model KnowledgeDocument {
   content        String
   chunkCount     Int      @default(0)
   embeddingModel String?
+  source         String   @default("text") // text (colado) | pdf | url | file (.txt/.md enviado)
+  sourceRef      String?  // nome do arquivo ou URL de origem
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

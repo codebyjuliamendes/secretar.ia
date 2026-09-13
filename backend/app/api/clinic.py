@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings
@@ -13,7 +13,7 @@ from app.deps import TenantContext, client_ip, get_settings_dep, require_permiss
 from app.domain.plans import feature_enabled
 from app.domain.roles import Permission
 from app.services import appointments as appt_service
-from app.services import audit, calendar_sync, knowledge, scheduling
+from app.services import audit, calendar_sync, knowledge, knowledge_sources, scheduling
 from app.services import billing as billing_service
 from app.services import dashboard as dashboard_service
 from app.services import notifications as notif_service
@@ -193,6 +193,70 @@ async def add_knowledge(
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
     )
+
+
+@router.post("/knowledge/upload", status_code=status.HTTP_201_CREATED)
+async def upload_knowledge(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str | None = Form(default=None, max_length=120),
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """PDF (texto extraído) ou .txt/.md. Conteúdo longo vira várias partes; a cota é verificada antes."""
+    from app.errors import AppError
+
+    knowledge.assert_enabled(ctx.tenant)
+    data = await file.read(knowledge_sources.MAX_UPLOAD_BYTES + 1)
+    if len(data) > knowledge_sources.MAX_UPLOAD_BYTES:
+        raise AppError("Arquivo acima de 10 MB.", code="file_too_large", status_code=413)
+    name = (file.filename or "documento").strip()
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype == knowledge_sources.PDF_MIME or name.lower().endswith(".pdf"):
+        text, source = knowledge_sources.extract_pdf_text(data), "pdf"
+    elif ctype in knowledge_sources.TEXT_MIMES or name.lower().endswith((".txt", ".md")):
+        text, source = data.decode("utf-8", errors="replace"), "file"
+    else:
+        raise AppError("Envie um PDF ou um arquivo de texto (.txt ou .md).", code="unsupported_file")
+    items = await knowledge_sources.import_text(
+        settings,
+        ctx.tenant,
+        title=(title or "").strip() or knowledge_sources.title_from_filename(name),
+        text=text,
+        source=source,
+        source_ref=name[:200],
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+    return {"items": items}
+
+
+class KnowledgeUrlIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    title: str | None = Field(default=None, min_length=2, max_length=120)
+
+
+@router.post("/knowledge/import-url", status_code=status.HTTP_201_CREATED)
+async def import_knowledge_url(
+    data: KnowledgeUrlIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Página HTML, PDF ou texto público. Hosts internos são recusados (SSRF)."""
+    knowledge.assert_enabled(ctx.tenant)
+    fetched = await knowledge_sources.fetch_url(data.url)
+    items = await knowledge_sources.import_text(
+        settings,
+        ctx.tenant,
+        title=data.title or fetched.title or knowledge_sources.title_from_url(fetched.final_url),
+        text=fetched.text,
+        source="url",
+        source_ref=fetched.final_url[:500],
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
+    return {"items": items, "sourceUrl": fetched.final_url, "kind": fetched.kind}
 
 
 @router.delete("/knowledge/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

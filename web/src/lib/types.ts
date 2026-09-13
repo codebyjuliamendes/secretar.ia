@@ -222,12 +222,16 @@ export interface Billing {
   plans: PlanLimits[];
 }
 
+export type KnowledgeSource = "text" | "pdf" | "url" | "file";
+
 export interface KnowledgeDocument {
   id: string;
   title: string;
   chars: number;
   chunkCount: number;
   embedded: boolean;
+  source: KnowledgeSource;
+  sourceRef: string | null;
   createdAt: string;
   updatedAt: string;
 }

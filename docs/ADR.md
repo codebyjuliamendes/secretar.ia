@@ -157,3 +157,28 @@ configurações, `knowledgeDocuments` no uso, recursos nos cards de plano).
 **Consequências.** Custo de IA alinhado à receita; conversão do trial pela experiência completa. Mudar a
 política é alterar `PLAN_LIMITS`/`TRIAL_FEATURE_PLAN`, sem tocar em rotas. O campo `Tenant.features` (Json)
 continua livre e **não** sobrepõe o plano: um OWNER poderia editá-lo pela API de configurações.
+
+## ADR-014 — Ingestão de PDF e URL na base de conhecimento, sem OCR e com proteção contra SSRF
+
+**Contexto.** ADR-012 deixou a ingestão de PDF/URL como evolução: as clínicas já têm o conteúdo em manuais
+PDF e no site, e colar texto à mão limita a adoção da base de conhecimento.
+**Decisão.** `services/knowledge_sources.py` transforma fontes em texto e reaproveita `add_document`:
+- **PDF** (`POST /knowledge/upload`, multipart, até 10 MB; também `.txt`/`.md`) com `pypdf`. Sem OCR: um PDF
+  digitalizado sem camada de texto é recusado (`pdf_no_text`) em vez de virar documento vazio. Linhas quebradas
+  pelo layout viram um parágrafo; linhas em branco separam parágrafos, que é o que o chunker entende.
+- **URL** (`POST /knowledge/import-url`): só `http/https`, sem credenciais na URL; o host é resolvido e recusado
+  se qualquer IP for privado, loopback, link-local, multicast, reservado, NAT compartilhado ou IPv4 mapeado em
+  IPv6 (cobre `127.0.0.1`, `localhost`, `169.254.169.254`, `[::1]`). Redirecionamentos são seguidos à mão
+  (máx. 3) revalidando cada destino, o corpo é lido em streaming com teto de 2 MB, e só HTML, PDF e texto são
+  aceitos. HTML vira texto por parágrafos com o `HTMLParser` da biblioteca padrão (sem `script/style/nav`),
+  e o `<title>` vira o título do documento.
+- Conteúdo maior que um documento (30 mil caracteres) é dividido em partes "Título (i/n)" em limites de
+  parágrafo, e a cota de documentos do plano (ADR-013) é verificada **antes** de gravar qualquer parte:
+  importação é tudo-ou-nada. `KnowledgeDocument.source/sourceRef` registram a origem (`text|pdf|url|file`).
+- Testes rodam sem rede: `httpx.MockTransport` e resolução de DNS injetados; o PDF de teste é gerado em memória
+  com xref válido.
+**Consequências.** Dependências novas: `pypdf` e `python-multipart`. A verificação de IP acontece antes da
+requisição e o httpx resolve o nome de novo ao conectar (janela teórica de DNS rebinding); para fechar isso
+seria preciso conectar ao IP validado com SNI manual, o que fica como evolução se o produto ganhar exposição.
+Páginas que exigem JavaScript para renderizar o conteúdo não são suportadas (só o HTML servido). OCR de PDFs
+digitalizados fica como evolução (Gemini multimodal já lê imagens; um caminho é rasterizar as páginas).

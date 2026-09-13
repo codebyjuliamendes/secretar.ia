@@ -96,6 +96,8 @@ def document_view(d, chunk_count: int | None = None) -> dict[str, Any]:
         "chars": len(d.content),
         "chunkCount": chunk_count if chunk_count is not None else d.chunkCount,
         "embedded": d.embeddingModel is not None,
+        "source": d.source,
+        "sourceRef": d.sourceRef,
         "createdAt": d.createdAt.isoformat(),
         "updatedAt": d.updatedAt.isoformat(),
     }
@@ -146,7 +148,15 @@ async def _store_chunks(settings: Settings, tenant_id: str, document_id: str, ch
 
 
 async def add_document(
-    settings: Settings, tenant, *, title: str, content: str, actor_user_id: str, ip: str | None
+    settings: Settings,
+    tenant,
+    *,
+    title: str,
+    content: str,
+    actor_user_id: str,
+    ip: str | None,
+    source: str = "text",
+    source_ref: str | None = None,
 ) -> dict[str, Any]:
     assert_enabled(tenant)
     tenant_id = tenant.id
@@ -166,7 +176,14 @@ async def add_document(
     if not chunks:
         raise AppError("Conteúdo vazio.", code="empty_document")
     doc = await db.knowledgedocument.create(
-        data={"tenantId": tenant_id, "title": title, "content": content, "chunkCount": len(chunks)}
+        data={
+            "tenantId": tenant_id,
+            "title": title,
+            "content": content,
+            "chunkCount": len(chunks),
+            "source": source,
+            "sourceRef": (source_ref or None) and source_ref[:500],
+        }
     )
     embedded = await _store_chunks(settings, tenant_id, doc.id, chunks)
     doc = await db.knowledgedocument.update(
@@ -178,7 +195,7 @@ async def add_document(
         resource_id=doc.id,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        metadata={"title": title, "chunks": len(chunks), "embedded": embedded},
+        metadata={"title": title, "chunks": len(chunks), "embedded": embedded, "source": source},
         ip=ip,
     )
     return document_view(doc)

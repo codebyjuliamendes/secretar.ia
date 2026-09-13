@@ -17,6 +17,8 @@ dependencies = [
     "aiosmtplib>=4.0",
     "tzdata>=2026.3",
     "cryptography>=43",
+    "pypdf>=6.18.1",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]

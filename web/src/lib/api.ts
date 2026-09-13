@@ -29,11 +29,13 @@ function qs(query?: Query) {
 
 async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
   let res: Response;
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   try {
     res = await fetch(`/api/backend/${path.replace(/^\//, "")}${qs(query)}`, {
       method,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      // FormData: o navegador define o Content-Type multipart com o boundary.
+      headers: body !== undefined && !isForm ? { "Content-Type": "application/json" } : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       credentials: "same-origin",
       cache: "no-store",
     });
@@ -71,6 +73,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 export const api = {
   get: <T>(path: string, query?: Query) => request<T>("GET", path, undefined, query),
   post: <T>(path: string, body?: unknown, query?: Query) => request<T>("POST", path, body ?? {}, query),
+  upload: <T>(path: string, form: FormData) => request<T>("POST", path, form),
   patch: <T>(path: string, body: unknown) => request<T>("PATCH", path, body),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   delete: <T = void>(path: string) => request<T>("DELETE", path),
