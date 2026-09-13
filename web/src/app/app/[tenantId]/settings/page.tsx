@@ -340,10 +340,12 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
       const form = new FormData();
       form.append("file", file);
       if (fileTitle.trim()) form.append("title", fileTitle.trim());
-      const r = await api.upload<{ items: KnowledgeDocument[] }>(`clinic/${tenant.id}/knowledge/upload`, form);
+      const r = await api.upload<{ items: KnowledgeDocument[]; ocrPages: number }>(`clinic/${tenant.id}/knowledge/upload`, form);
       setFile(null);
       setFileTitle("");
-      toast.success(r.items.length > 1 ? `Arquivo importado em ${r.items.length} partes.` : "Arquivo importado para a base de conhecimento.");
+      const parts = r.items.length > 1 ? ` em ${r.items.length} partes` : "";
+      const ocr = r.ocrPages > 0 ? ` (${r.ocrPages} página(s) digitalizada(s) lida(s) por IA)` : "";
+      toast.success(`Arquivo importado${parts}${ocr}.`);
       await refetch();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -456,7 +458,7 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <Input placeholder="Título (opcional; usa o nome do arquivo)" value={fileTitle} onChange={(e) => setFileTitle(e.target.value)} />
-              <p className="text-xs text-muted">Até 10 MB. PDFs digitalizados (sem texto) não são lidos. Textos longos são divididos em partes.</p>
+              <p className="text-xs text-muted">Até 10 MB. PDFs digitalizados são lidos pela IA (até 20 páginas). Textos longos são divididos em partes.</p>
               <Button variant="secondary" onClick={importFile} loading={importing === "file"} disabled={!file}>Importar arquivo</Button>
             </fieldset>
             <fieldset className="space-y-3 rounded-lg border border-dashed border-border p-4">

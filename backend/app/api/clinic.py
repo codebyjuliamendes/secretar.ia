@@ -212,8 +212,10 @@ async def upload_knowledge(
         raise AppError("Arquivo acima de 10 MB.", code="file_too_large", status_code=413)
     name = (file.filename or "documento").strip()
     ctype = (file.content_type or "").split(";")[0].strip().lower()
+    ocr_pages = 0
     if ctype == knowledge_sources.PDF_MIME or name.lower().endswith(".pdf"):
-        text, source = knowledge_sources.extract_pdf_text(data), "pdf"
+        pdf = await knowledge_sources.extract_pdf_text(settings, data)
+        text, source, ocr_pages = pdf.text, "pdf", pdf.ocr_pages
     elif ctype in knowledge_sources.TEXT_MIMES or name.lower().endswith((".txt", ".md")):
         text, source = data.decode("utf-8", errors="replace"), "file"
     else:
@@ -228,7 +230,7 @@ async def upload_knowledge(
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
     )
-    return {"items": items}
+    return {"items": items, "ocrPages": ocr_pages}
 
 
 class KnowledgeUrlIn(BaseModel):
@@ -245,7 +247,7 @@ async def import_knowledge_url(
 ):
     """Página HTML, PDF ou texto público. Hosts internos são recusados (SSRF)."""
     knowledge.assert_enabled(ctx.tenant)
-    fetched = await knowledge_sources.fetch_url(data.url)
+    fetched = await knowledge_sources.fetch_url(settings, data.url)
     items = await knowledge_sources.import_text(
         settings,
         ctx.tenant,
@@ -256,7 +258,7 @@ async def import_knowledge_url(
         actor_user_id=ctx.user.id,
         ip=client_ip(request),
     )
-    return {"items": items, "sourceUrl": fetched.final_url, "kind": fetched.kind}
+    return {"items": items, "sourceUrl": fetched.final_url, "kind": fetched.kind, "ocrPages": fetched.ocr_pages}
 
 
 @router.delete("/knowledge/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -94,9 +94,11 @@ async def test_assert_public_host_uses_literal_ips_without_dns(monkeypatch: pyte
         await ks.assert_public_host("evil.example")
 
 
-def test_extract_pdf_text_rejects_non_pdf_and_filename_titles():
+async def test_extract_pdf_text_rejects_non_pdf_and_filename_titles():
+    from app.config import get_settings
+
     with pytest.raises(AppError) as exc:
-        ks.extract_pdf_text(b"isto nao e um pdf")
+        await ks.extract_pdf_text(get_settings(), b"isto nao e um pdf")
     assert exc.value.code == "pdf_invalid"
     assert ks.title_from_filename("preparo_para-peeling.PDF") == "preparo para peeling"
     assert ks.title_from_filename(".pdf") == "Documento"

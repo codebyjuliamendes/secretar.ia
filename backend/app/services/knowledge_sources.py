@@ -1,7 +1,9 @@
 """Ingestão de fontes externas na base de conhecimento: PDF enviado e página/PDF por URL.
 
-- PDF: texto extraído com pypdf. Sem OCR: um PDF digitalizado (sem camada de texto) é recusado com mensagem
-  clara em vez de virar um documento vazio.
+- PDF: texto extraído com pypdf. Páginas sem camada de texto (digitalizadas) passam por OCR com o Gemini
+  multimodal (mesmo provedor da IA): a maior imagem da página é enviada e a transcrição volta como texto.
+  Sem chave de IA, ou se a IA não devolver texto, o PDF é recusado com mensagem clara em vez de virar um
+  documento vazio.
 - URL: só http/https; o host é resolvido e rejeitado se apontar para rede privada, loopback, link-local ou
   metadados de nuvem (SSRF). A conexão é feita ao IP validado (URL reescrita, `Host` e SNI com o nome
   original), então uma segunda resolução de DNS não pode trocar o destino (DNS rebinding). Redirecionamentos
@@ -28,8 +30,10 @@ from app.config import Settings
 from app.db import db
 from app.domain.plans import knowledge_documents_limit
 from app.errors import AppError, QuotaExceededError
+from app.integrations.gemini import AIProviderError
 from app.logging import get_logger
 from app.services import knowledge
+from app.services import media as media_service
 
 log = get_logger("knowledge_sources")
 
@@ -42,9 +46,25 @@ PDF_MIME = "application/pdf"
 HTML_MIMES = ("text/html", "application/xhtml+xml")
 TEXT_MIMES = ("text/plain", "text/markdown")
 USER_AGENT = "Secretar.ia/1.0 (base de conhecimento; +https://secretar.ia)"
+OCR_MIN_PAGE_CHARS = 40  # página com menos texto que isso é tratada como digitalizada
+OCR_MAX_PAGES = 20
+OCR_MAX_SIDE_PX = 2000
+OCR_MAX_IMAGE_BYTES = media_service.MAX_IMAGE_BYTES
+OCR_PROMPT = (
+    "Esta é uma página digitalizada de um documento de uma clínica. Transcreva fielmente TODO o texto legível, "
+    "em português, preservando títulos e parágrafos (separe parágrafos com uma linha em branco). Não resuma, "
+    "não comente, não invente. Se não houver texto legível, responda exatamente: [sem texto]."
+)
 
 # Transporte httpx injetável (testes usam httpx.MockTransport; produção deixa None = rede real).
 _transport: httpx.AsyncBaseTransport | None = None
+
+
+@dataclass
+class PdfText:
+    text: str
+    pages: int
+    ocr_pages: int  # páginas lidas por OCR (IA)
 
 
 @dataclass
@@ -54,6 +74,7 @@ class FetchedSource:
     final_url: str
     content_type: str
     kind: str  # html | pdf | text
+    ocr_pages: int = 0
 
 
 # ------------------------------------ PDF ------------------------------------
@@ -69,7 +90,64 @@ def _normalize_page(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def extract_pdf_text(data: bytes) -> str:
+def ocr_client(settings: Settings):
+    """Mesmo cliente multimodal da mídia do WhatsApp; separado para os testes injetarem um falso."""
+    return media_service.client_for(settings)
+
+
+def page_image_for_ocr(page) -> tuple[bytes, str] | None:
+    """Maior imagem da página, reencodada em JPEG (RGB, lado máx. 2000 px) para o provedor de IA."""
+    best = None
+    for img in page.images:
+        try:
+            pil = img.image
+        except Exception:  # noqa: BLE001 - filtro exótico que o Pillow não decodifica
+            continue
+        if pil is None:
+            continue
+        area = pil.width * pil.height
+        if best is None or area > best[0]:
+            best = (area, pil)
+    if best is None or best[0] < 100 * 100:
+        return None
+    pil = best[1]
+    if pil.mode not in ("RGB", "L"):
+        pil = pil.convert("RGB")
+    if max(pil.size) > OCR_MAX_SIDE_PX:
+        pil.thumbnail((OCR_MAX_SIDE_PX, OCR_MAX_SIDE_PX))
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=85)
+    payload = buf.getvalue()
+    if len(payload) > OCR_MAX_IMAGE_BYTES:
+        return None
+    return payload, "image/jpeg"
+
+
+async def _ocr_pages(settings: Settings, pages_to_read: list) -> dict[int, str]:
+    """OCR via Gemini das páginas indicadas [(índice, page)]. Devolve {índice: texto}. Vazio sem IA/falha."""
+    client = ocr_client(settings)
+    if client is None or not pages_to_read:
+        return {}
+    out: dict[int, str] = {}
+    for idx, page in pages_to_read[:OCR_MAX_PAGES]:
+        image = page_image_for_ocr(page)
+        if image is None:
+            continue
+        try:
+            result = await client.describe_media(OCR_PROMPT, image[0], image[1], max_output_tokens=4096)
+        except AIProviderError as exc:
+            log.warning("pdf_ocr_failed", page=idx, error=str(exc)[:200])
+            continue
+        text = _normalize_page(result.text or "")
+        if text and "[sem texto]" not in text.lower():
+            out[idx] = text
+        log.info(
+            "pdf_ocr_page", page=idx, chars=len(text), tokens=(result.input_tokens or 0) + (result.output_tokens or 0)
+        )
+    return out
+
+
+async def extract_pdf_text(settings: Settings, data: bytes) -> PdfText:
     if not data.startswith(b"%PDF"):
         raise AppError("O arquivo não é um PDF válido.", code="pdf_invalid")
     try:
@@ -79,18 +157,30 @@ def extract_pdf_text(data: bytes) -> str:
                 reader.decrypt("")
             except Exception as exc:  # noqa: BLE001
                 raise AppError("O PDF está protegido por senha.", code="pdf_encrypted") from exc
-        pages = [_normalize_page(page.extract_text() or "") for page in reader.pages]
+        pages = list(reader.pages)
+        texts = [_normalize_page(page.extract_text() or "") for page in pages]
     except AppError:
         raise
     except Exception as exc:  # noqa: BLE001 - pypdf lança várias classes para arquivo corrompido
         log.warning("pdf_parse_failed", error=str(exc)[:200])
         raise AppError("Não foi possível ler o PDF (arquivo corrompido?).", code="pdf_invalid") from exc
-    text = "\n\n".join(p for p in pages if p)
+    scanned = [(i, pages[i]) for i, t in enumerate(texts) if len(t) < OCR_MIN_PAGE_CHARS]
+    ocr_text = await _ocr_pages(settings, scanned) if scanned else {}
+    for i, t in ocr_text.items():
+        texts[i] = t
+    text = "\n\n".join(t for t in texts if t)
     if len(text.strip()) < MIN_TEXT_CHARS:
+        if scanned and ocr_client(settings) is None:
+            raise AppError(
+                "O PDF parece digitalizado e a leitura de imagens por IA não está configurada neste ambiente. "
+                "Cole o conteúdo como texto.",
+                code="pdf_no_text",
+            )
         raise AppError(
-            "O PDF não tem texto extraível (parece digitalizado). Cole o conteúdo como texto.", code="pdf_no_text"
+            "Não encontramos texto legível no PDF (nem por leitura das imagens). Cole o conteúdo como texto.",
+            code="pdf_no_text",
         )
-    return text
+    return PdfText(text=text, pages=len(pages), ocr_pages=len(ocr_text))
 
 
 def title_from_filename(name: str) -> str:
@@ -218,7 +308,7 @@ def pinned_request(url: httpx.URL, ip: str) -> tuple[httpx.URL, dict[str, str], 
     return target, {"Host": host_header}, extensions
 
 
-async def fetch_url(url: str) -> FetchedSource:
+async def fetch_url(settings: Settings, url: str) -> FetchedSource:
     current = _validate_url(url)
     body = bytearray()
     ctype = ""
@@ -257,7 +347,8 @@ async def fetch_url(url: str) -> FetchedSource:
 
     data = bytes(body)
     if ctype == PDF_MIME or data[:5] == b"%PDF-":
-        return FetchedSource(extract_pdf_text(data), None, str(current), PDF_MIME, "pdf")
+        pdf = await extract_pdf_text(settings, data)
+        return FetchedSource(pdf.text, None, str(current), PDF_MIME, "pdf", ocr_pages=pdf.ocr_pages)
     decoded = data.decode(charset or "utf-8", errors="replace")
     if ctype in HTML_MIMES or (not ctype and "<html" in decoded[:2000].lower()):
         title, text = html_to_text(decoded)

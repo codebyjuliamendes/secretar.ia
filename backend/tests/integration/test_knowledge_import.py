@@ -1,24 +1,44 @@
 """Ingestão de PDF e URL na base de conhecimento (sem rede: transporte httpx e DNS injetados)."""
 
+import io
+
 import httpx
 import pytest
 
+from app.integrations.gemini import AIProviderError, AIResult
 from app.services import knowledge_sources as ks
 from tests.conftest import auth_headers, register_user
 
 
-def make_pdf(*lines: str, empty: bool = False) -> bytes:
-    """PDF mínimo e válido (xref correto) com uma página de texto Helvetica. ASCII apenas."""
+def make_pdf(*lines: str, empty: bool = False, image_jpeg: bytes | None = None) -> bytes:
+    """PDF mínimo e válido (xref correto) com uma página de texto Helvetica (ASCII) e/ou uma imagem JPEG."""
     ops = ["BT /F1 12 Tf 72 720 Td 14 TL"] + [f"({ln}) Tj T*" for ln in lines] + ["ET"]
-    stream = ("" if empty else "\n".join(ops)).encode("latin-1")
+    if image_jpeg:
+        ops = ["q 400 0 0 500 100 150 cm /Im1 Do Q"] + ([] if empty else ops)
+    stream = ("" if empty and not image_jpeg else "\n".join(ops)).encode("latin-1")
+    resources = b"/Resources << /Font << /F1 5 0 R >> " + (b"/XObject << /Im1 6 0 R >> " if image_jpeg else b"") + b">>"
     objs = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
-        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R " + resources + b" >>",
         b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
+    if image_jpeg:
+        from PIL import Image
+
+        w, h = Image.open(io.BytesIO(image_jpeg)).size
+        objs.append(
+            b"<< /Type /XObject /Subtype /Image /Width "
+            + str(w).encode()
+            + b" /Height "
+            + str(h).encode()
+            + b" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "
+            + str(len(image_jpeg)).encode()
+            + b" >>\nstream\n"
+            + image_jpeg
+            + b"\nendstream"
+        )
     out = bytearray(b"%PDF-1.4\n")
     offsets = []
     for i, obj in enumerate(objs, 1):
@@ -215,3 +235,74 @@ async def test_import_requires_plan_with_knowledge_base(client, clean_db, offlin
         f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("a.pdf", make_pdf("x"), "application/pdf")}
     )
     assert up.status_code == 402
+
+
+def scanned_page_jpeg() -> bytes:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (600, 800), "white")
+    ImageDraw.Draw(img).text((40, 40), "Preparo para peeling", fill="black")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+class FakeOcr:
+    def __init__(self, text: str | None = None, fail: bool = False):
+        self.text, self.fail, self.calls = text, fail, []
+
+    async def describe_media(self, prompt, data, mime_type, *, max_output_tokens=None):
+        self.calls.append((mime_type, len(data), max_output_tokens))
+        if self.fail:
+            raise AIProviderError("Gemini respondeu 503")
+        return AIResult(text=self.text or "", input_tokens=900, output_tokens=120, model="fake-gemini")
+
+
+async def test_scanned_pdf_is_read_by_ocr_and_fails_honestly_without_ai(client, clean_db, monkeypatch):
+    tid, h = await _paid_tenant(client, clean_db)
+    scanned = make_pdf(empty=True, image_jpeg=scanned_page_jpeg())
+
+    # Sem IA configurada: recusa explicando que o PDF é digitalizado.
+    no_ai = await client.post(
+        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("scan.pdf", scanned, "application/pdf")}
+    )
+    assert no_ai.status_code == 400 and no_ai.json()["error"]["code"] == "pdf_no_text"
+    assert "não está configurada" in no_ai.json()["error"]["message"]
+
+    fake = FakeOcr(
+        text="Preparo para peeling\n\nSuspenda ácidos e retinoides 5 dias antes.\nVenha sem maquiagem no dia."
+    )
+    monkeypatch.setattr(ks, "ocr_client", lambda settings: fake)
+    ok = await client.post(
+        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("scan.pdf", scanned, "application/pdf")}
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["ocrPages"] == 1 and ok.json()["items"][0]["source"] == "pdf"
+    assert fake.calls and fake.calls[0][0] == "image/jpeg" and fake.calls[0][2] == 4096
+    detail = (await client.get(f"/api/clinic/{tid}/knowledge/{ok.json()['items'][0]['id']}", headers=h)).json()
+    assert (
+        detail["content"]
+        == "Preparo para peeling\n\nSuspenda ácidos e retinoides 5 dias antes. Venha sem maquiagem no dia."
+    )
+
+    # PDF com texto de verdade não aciona OCR (economia de IA).
+    fake.calls.clear()
+    with_text = make_pdf("Aceitamos cartao de credito em ate 6 vezes sem juros.", "Nao aceitamos cheque.")
+    res = await client.post(
+        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("texto.pdf", with_text, "application/pdf")}
+    )
+    assert res.status_code == 201 and res.json()["ocrPages"] == 0 and fake.calls == []
+
+    # IA indisponível ou sem texto na imagem: recusa honesta, nada gravado.
+    before = await clean_db.knowledgedocument.count(where={"tenantId": tid})
+    monkeypatch.setattr(ks, "ocr_client", lambda settings: FakeOcr(fail=True))
+    down = await client.post(
+        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("scan2.pdf", scanned, "application/pdf")}
+    )
+    assert down.status_code == 400 and down.json()["error"]["code"] == "pdf_no_text"
+    monkeypatch.setattr(ks, "ocr_client", lambda settings: FakeOcr(text="[sem texto]"))
+    blank = await client.post(
+        f"/api/clinic/{tid}/knowledge/upload", headers=h, files={"file": ("scan3.pdf", scanned, "application/pdf")}
+    )
+    assert blank.status_code == 400 and "nem por leitura das imagens" in blank.json()["error"]["message"]
+    assert await clean_db.knowledgedocument.count(where={"tenantId": tid}) == before

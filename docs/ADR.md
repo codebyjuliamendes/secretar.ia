@@ -182,8 +182,14 @@ PDF e no site, e colar texto à mão limita a adoção da base de conhecimento.
 ao IP já validado (URL reescrita com o IP, cabeçalho `Host` e extensão `sni_hostname` do httpx com o nome
 original, que também é o nome verificado no certificado), fechando a janela de DNS rebinding entre a
 verificação e a conexão. Cada salto de redirecionamento passa pelo mesmo caminho.
-Páginas que exigem JavaScript para renderizar o conteúdo não são suportadas (só o HTML servido). OCR de PDFs
-digitalizados fica como evolução (Gemini multimodal já lê imagens; um caminho é rasterizar as páginas).
+Páginas que exigem JavaScript para renderizar o conteúdo não são suportadas (só o HTML servido).
+**Adendo (12/set/2026) — OCR de PDF digitalizado.** Página com menos de 40 caracteres de texto extraível tem
+sua maior imagem embutida (via `pypdf` + Pillow, reencodada em JPEG com lado máximo de 2000 px) enviada ao
+Gemini multimodal (mesmo cliente de `services/media.py`) com instrução de transcrição literal; até 20 páginas
+por PDF. Sem chave de IA, ou se a IA não devolver texto, o PDF continua sendo recusado com `pdf_no_text` e uma
+mensagem que diz o porquê. PDFs com texto não acionam OCR. A resposta do upload/import traz `ocrPages`.
+Não rasterizamos a página inteira (evita pdfium/poppler no container): PDFs digitalizados são, na prática,
+uma imagem por página, que é o que extraímos.
 
 ## ADR-015 — Leitura do Google Calendar por polling incremental (syncToken), não por push
 
