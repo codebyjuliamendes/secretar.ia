@@ -9,7 +9,6 @@ from app.db import db
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
 from app.errors import ConflictError, NotFoundError
 from app.services import audit
-from generated_prisma import Json
 from generated_prisma.errors import UniqueViolationError
 
 ALLOWED_TENANT_STATUSES = {"TRIAL", "ACTIVE", "PAST_DUE", "CANCELED", "SUSPENDED"}
@@ -67,8 +66,6 @@ async def update_settings(tenant_id: str, data: dict[str, Any], *, actor_user_id
     payload = {k: v for k, v in data.items() if v is not None}
     if "upsellEnabled" in payload and payload["upsellEnabled"] and not limits_for(str(tenant.plan)).upsell_campaigns:
         raise ConflictError("Campanhas de upsell não estão disponíveis no seu plano.", code="plan_feature_locked")
-    if "features" in payload:
-        payload["features"] = Json(payload["features"])
     updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
     await audit.record(
         action="tenant.settings_updated",

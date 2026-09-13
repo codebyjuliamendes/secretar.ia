@@ -156,7 +156,8 @@ para o FREE são preservados e voltam a valer ao subir de plano. O frontend só 
 configurações, `knowledgeDocuments` no uso, recursos nos cards de plano).
 **Consequências.** Custo de IA alinhado à receita; conversão do trial pela experiência completa. Mudar a
 política é alterar `PLAN_LIMITS`/`TRIAL_FEATURE_PLAN`, sem tocar em rotas. O campo `Tenant.features` (Json)
-continua livre e **não** sobrepõe o plano: um OWNER poderia editá-lo pela API de configurações.
+**não** sobrepõe o plano e deixou de ser editável pela API da clínica (12/set/2026); fica reservado para
+sobreposições feitas pelo super admin, se um dia forem necessárias.
 
 ## ADR-014 — Ingestão de PDF e URL na base de conhecimento, sem OCR e com proteção contra SSRF
 

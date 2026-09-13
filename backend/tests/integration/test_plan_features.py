@@ -55,6 +55,9 @@ async def test_trial_has_pro_features_and_downgrade_to_free_locks_them(client, c
         f"/api/clinic/{tid}/knowledge", headers=h, json={"title": "Pagamento", "content": DOC_PAGAMENTO}
     )
     assert doc.status_code == 201
+    # O campo livre `features` não é editável pela clínica nem sobrepõe o plano.
+    patched = await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"features": {"knowledge": True}})
+    assert patched.status_code == 200 and patched.json()["features"] == {}
 
     # Trial acabou e a clínica ficou no FREE: documento continua listado, mas não pode ser alterado nem usado.
     await clean_db.tenant.update(where={"id": tid}, data={"status": "ACTIVE", "plan": "FREE"})
