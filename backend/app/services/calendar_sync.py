@@ -134,12 +134,23 @@ async def start_connect(settings: Settings, tenant, *, actor_user_id: str, ip: s
     return {"url": provider.auth_url(state=state, redirect_uri=redirect_uri(settings))}
 
 
-async def complete_connect(settings: Settings, *, code: str | None, state: str | None) -> str:
-    """Troca o código por tokens e grava a conexão. Retorna o tenant_id. Lança AppError em falhas."""
+async def complete_connect(
+    settings: Settings, *, code: str | None, state: str | None, expected_user_id: str, expected_tenant_id: str
+) -> str:
+    """Troca o código por tokens e grava a conexão. Retorna o tenant_id. Lança AppError em falhas.
+
+    Chamado pelo frontend AUTENTICADO após o redirect do Google: o `state` precisa ter sido gerado por este
+    usuário para esta clínica. Isso impede que alguém induza a vítima a conectar a agenda dela à clínica errada."""
     payload = parse_state(settings, state)
     if payload is None:
         raise AppError("Estado da autorização inválido ou expirado. Tente conectar novamente.", code="invalid_state")
     tenant_id, user_id = payload["tid"], payload["sub"]
+    if user_id != expected_user_id or tenant_id != expected_tenant_id:
+        raise AppError(
+            "Esta autorização foi iniciada por outra pessoa ou para outra clínica.",
+            code="invalid_state",
+            status_code=403,
+        )
     if not code:
         raise AppError("Autorização não concedida.", code="oauth_denied")
     # O usuário do state precisa continuar membro com permissão (o link pode ter sido forjado/compartilhado).
@@ -170,6 +181,19 @@ async def complete_connect(settings: Settings, *, code: str | None, state: str |
     if refresh_enc:
         data["refreshTokenEnc"] = refresh_enc
     if existing:
+        if existing.accountEmail and tokens.email and existing.accountEmail != tokens.email:
+            # Outra conta Google: token de sincronização, canal push e compromissos espelhados eram da anterior.
+            data.update(
+                {
+                    "syncToken": None,
+                    "channelId": None,
+                    "channelResourceId": None,
+                    "channelToken": None,
+                    "channelExpiresAt": None,
+                }
+            )
+            await db.externalbusy.delete_many(where={"tenantId": tenant_id})
+            await db.appointment.update_many(where={"tenantId": tenant_id}, data={"externalEventId": None})
         await db.calendarconnection.update(where={"id": existing.id}, data=data)
     else:
         await db.calendarconnection.create(data={"tenantId": tenant_id, **data})
@@ -561,13 +585,10 @@ async def ensure_watch(settings: Settings, provider, token: str, conn, now: date
             token=secret,
             ttl_seconds=WATCH_TTL_SECONDS,
         )
-        if conn.channelId and conn.channelResourceId:
-            await provider.stop_channel(
-                access_token=token, channel_id=conn.channelId, resource_id=conn.channelResourceId
-            )
     except Exception as exc:  # noqa: BLE001 - push é otimização: a leitura periódica segue funcionando
         log.warning("google_watch_failed", error=str(exc)[:200])
         return "failed"
+    # Grava o canal novo ANTES de parar o antigo: se o stop falhar, nada vaza nem se perde.
     await db.calendarconnection.update(
         where={"id": conn.id},
         data={
@@ -577,6 +598,13 @@ async def ensure_watch(settings: Settings, provider, token: str, conn, now: date
             "channelExpiresAt": channel.expires_at,
         },
     )
+    if conn.channelId and conn.channelResourceId:
+        try:
+            await provider.stop_channel(
+                access_token=token, channel_id=conn.channelId, resource_id=conn.channelResourceId
+            )
+        except Exception as exc:  # noqa: BLE001 - canal antigo expira sozinho em até 7 dias
+            log.warning("google_stop_channel_failed", error=str(exc)[:200])
     return "renewed" if conn.channelId else "created"
 
 

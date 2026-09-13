@@ -29,6 +29,13 @@ async def require_cron_secret(
 
 @router.get("/health")
 async def health():
+    """Liveness: o processo responde. Não consulta o banco, para uma oscilação do Postgres não reiniciar os pods."""
+    return {"status": "ok", "time": datetime.now(UTC).isoformat()}
+
+
+@router.get("/ready")
+async def ready():
+    """Readiness: pronto para receber tráfego (banco acessível). Use no balanceador, não no restart do container."""
     checks = {"database": "ok"}
     status_code = 200
     try:

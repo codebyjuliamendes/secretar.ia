@@ -98,7 +98,18 @@ function InviteForm() {
                 Este e-mail já tem uma conta na Secretar.ia. Entre com ela para aceitar o convite
                 {me ? ` (você está conectado(a) como ${me.email})` : ""}.
               </Alert>
-              <Button className="w-full" onClick={() => router.push(nextUrl)}>Entrar com {info.email}</Button>
+              <Button
+                className="w-full"
+                loading={loading}
+                onClick={async () => {
+                  // Logado como outra pessoa: encerra essa sessão antes, senão o proxy manda de volta para /app.
+                  setLoading(true);
+                  if (me) await api.post("auth/logout").catch(() => undefined);
+                  router.push(nextUrl);
+                }}
+              >
+                <span className="truncate">Entrar com {info.email}</span>
+              </Button>
             </>
           )}
         </div>

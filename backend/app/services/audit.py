@@ -41,7 +41,7 @@ async def record(
 async def list_for_tenant(tenant_id: str, *, limit: int = 50, cursor: str | None = None) -> list[dict]:
     kwargs: dict[str, Any] = {
         "where": {"tenantId": tenant_id},
-        "order": {"createdAt": "desc"},
+        "order": [{"createdAt": "desc"}, {"id": "desc"}],
         "take": limit,
         "include": {"actor": True},
     }

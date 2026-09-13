@@ -55,6 +55,18 @@ def chunk_text(text: str, *, target: int = CHUNK_TARGET_CHARS, maximum: int = CH
                 current = f"{current} {sentence}".strip()
         if current:
             units.append(current)
+    # Unidade sem pontuação (tabela de preços numa linha só) ainda pode passar de `maximum`: corte por palavra,
+    # senão o embedding do lote inteiro falha (limite de tokens) e o documento cai para busca textual.
+    bounded: list[str] = []
+    for u in units:
+        while len(u) > maximum:
+            cut = u.rfind(" ", 0, maximum)
+            cut = cut if cut > maximum // 2 else maximum
+            bounded.append(u[:cut].strip())
+            u = u[cut:].strip()
+        if u:
+            bounded.append(u)
+    units = bounded
     chunks: list[str] = []
     buf = ""
     for u in units:

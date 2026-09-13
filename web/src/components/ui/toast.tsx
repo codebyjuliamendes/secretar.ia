@@ -13,11 +13,15 @@ const ToastContext = createContext<{ push: (tone: Tone, message: string) => void
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((tone: Tone, message: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, tone, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
-  }, []);
+  const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const push = useCallback(
+    (tone: Tone, message: string) => {
+      const id = Date.now() + Math.random();
+      setToasts((t) => [...t, { id, tone, message }].slice(-3)); // no máximo 3 na pilha
+      setTimeout(() => dismiss(id), tone === "danger" ? 9000 : 5000); // erros ficam mais tempo
+    },
+    [dismiss],
+  );
   const value = useMemo(() => ({ push }), [push]);
   const tones: Record<Tone, string> = {
     success: "border-success/40 bg-success-soft text-success",
@@ -29,8 +33,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div aria-live="polite" aria-atomic="false" className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2">
         {toasts.map((t) => (
-          <div key={t.id} role="status" className={`pointer-events-auto rounded-lg border px-4 py-3 text-sm shadow-lg ${tones[t.tone]}`}>
-            {t.message}
+          <div key={t.id} className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg ${tones[t.tone]}`}>
+            <span className="flex-1">{t.message}</span>
+            <button type="button" onClick={() => dismiss(t.id)} aria-label="Fechar aviso" className="-mr-1 rounded px-1 leading-none opacity-70 hover:opacity-100">✕</button>
           </div>
         ))}
       </div>

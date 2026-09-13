@@ -9,8 +9,8 @@
   --c-fg: #111114;
   --c-fg-muted: #5b5b66;
   --c-border: #e3e3e8;
-  --c-primary: #c9337c;
-  --c-primary-hover: #b02a6c;
+  --c-primary: #b42a6f; /* 5,0:1 sobre --c-primary-soft (AA para texto pequeno) */
+  --c-primary-hover: #9c2461;
   --c-primary-soft: #fbe7f1;
   --c-primary-fg: #ffffff;
   --c-success: #1f7a4d;

@@ -26,7 +26,7 @@ const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);
  * Renovações em voo por refresh token: N chamadas paralelas com o access vencido compartilham UMA renovação.
  * Sem isso, a segunda rotação encontraria o token já revogado e o backend trataria como reuso (roubo).
  */
-const inflightRefresh = new Map<string, Promise<TokenPair | null>>();
+const inflightRefresh = new Map<string, Promise<TokenPair | "invalid" | null>>();
 function refreshOnce(refreshToken: string, userAgent: string | null) {
   const existing = inflightRefresh.get(refreshToken);
   if (existing) return existing;
@@ -99,7 +99,15 @@ async function handle(req: NextRequest, ctx: Ctx) {
   let renewed: TokenPair | null = null;
 
   if (path === "auth/logout") {
-    const payload = refreshToken ? JSON.stringify({ refreshToken }) : "{}";
+    if (req.method !== "POST") return errorResponse(405, "method_not_allowed", "Use POST para sair.");
+    // Preserva opções do cliente (ex.: allSessions) e injeta o refresh token do cookie.
+    let clientBody: Record<string, unknown> = {};
+    try {
+      clientBody = body && body.byteLength ? (JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>) : {};
+    } catch {
+      clientBody = {};
+    }
+    const payload = JSON.stringify({ ...clientBody, ...(refreshToken ? { refreshToken } : {}) });
     try {
       await fetch(`${API_URL}/api/auth/logout`, {
         method: "POST",
@@ -119,8 +127,13 @@ async function handle(req: NextRequest, ctx: Ctx) {
   try {
     upstream = await forward(req, path, accessToken, body);
     if (upstream.status === 401 && refreshToken && !AUTH_TOKEN_PATHS.has(path)) {
-      renewed = await refreshOnce(refreshToken, req.headers.get("user-agent"));
-      if (renewed) {
+      const outcome = await refreshOnce(refreshToken, req.headers.get("user-agent"));
+      if (outcome === null) {
+        // Backend instável na hora de renovar: não derruba a sessão; o cliente tenta de novo.
+        return errorResponse(503, "backend_unavailable", "Serviço temporariamente indisponível. Tente novamente.");
+      }
+      if (outcome !== "invalid") {
+        renewed = outcome;
         accessToken = renewed.accessToken;
         upstream = await forward(req, path, accessToken, body);
       }

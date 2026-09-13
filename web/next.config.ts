@@ -23,6 +23,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone", // imagem Docker enxuta (web/Dockerfile)
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {

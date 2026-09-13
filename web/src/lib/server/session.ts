@@ -24,7 +24,8 @@ export function clearSessionCookies(res: NextResponse) {
   res.cookies.set(REFRESH_COOKIE, "", { ...base, maxAge: 0 });
 }
 
-export async function refreshWithBackend(refreshToken: string, userAgent: string | null): Promise<TokenPair | null> {
+/** "invalid" = o backend recusou o refresh (sessão acabou); null = falha transitória (5xx/rede), manter cookies. */
+export async function refreshWithBackend(refreshToken: string, userAgent: string | null): Promise<TokenPair | "invalid" | null> {
   try {
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: "POST",
@@ -32,9 +33,10 @@ export async function refreshWithBackend(refreshToken: string, userAgent: string
       body: JSON.stringify({ refreshToken }),
       cache: "no-store",
     });
+    if (res.status === 401 || res.status === 403) return "invalid";
     if (!res.ok) return null;
     const data = (await res.json()) as TokenPair;
-    if (!data.accessToken || !data.refreshToken) return null;
+    if (!data.accessToken || !data.refreshToken) return "invalid";
     return data;
   } catch {
     return null;

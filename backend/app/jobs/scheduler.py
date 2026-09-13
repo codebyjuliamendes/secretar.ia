@@ -31,6 +31,13 @@ async def _unlock(key: int) -> None:
     await db.query_raw("SELECT pg_advisory_unlock($1)", key)
 
 
+async def daily_already_ran_today(now: datetime | None = None) -> bool:
+    """O `Job` da campanha é o carimbo durável do dia: outra réplica (ou um restart) não repete a rotina."""
+    now = now or datetime.now(UTC)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return await db.job.count(where={"name": UPSELL_CAMPAIGN, "createdAt": {"gte": start}}) > 0
+
+
 async def run_daily_maintenance() -> dict:
     """Rotinas diárias: campanha de upsell e limpeza de dados técnicos antigos."""
     now = datetime.now(UTC)
@@ -76,7 +83,8 @@ async def scheduler_loop(stop: asyncio.Event) -> None:
             if now.hour == DAILY_HOUR_UTC and last_run_day != today:
                 if await _try_lock(LOCK_KEY_DAILY):
                     try:
-                        await run_daily_maintenance()
+                        if not await daily_already_ran_today(now):
+                            await run_daily_maintenance()
                     finally:
                         await _unlock(LOCK_KEY_DAILY)
                 last_run_day = today

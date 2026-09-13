@@ -38,7 +38,7 @@ async def list_notifications(tenant_id: str, *, unread_only: bool, limit: int, c
     where: dict = {"tenantId": tenant_id}
     if unread_only:
         where["readAt"] = None
-    kwargs: dict = {"where": where, "order": {"createdAt": "desc"}, "take": limit}
+    kwargs: dict = {"where": where, "order": [{"createdAt": "desc"}, {"id": "desc"}], "take": limit}
     if cursor:
         kwargs["cursor"] = {"id": cursor}
         kwargs["skip"] = 1

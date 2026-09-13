@@ -66,7 +66,12 @@ class Settings(BaseSettings):
     # se o backend estiver exposto diretamente à internet, senão qualquer cliente forja o IP e zera os limites.
     trust_proxy_headers: bool = True
 
+    # Worker da fila e agendador neste processo. Em várias réplicas, deixe true em UMA (ou em um processo
+    # dedicado) e false nas demais, senão a concorrência da fila e o polling se multiplicam.
+    run_background_jobs: bool = True
+
     # Limites operacionais
+    max_request_body_bytes: int = 32 * 1024 * 1024  # webhook normalizado aceita até 24 MB de mídia em base64
     queue_concurrency: int = Field(default=5, ge=1, le=50)
     queue_stuck_minutes: int = 10
     login_rate_limit_per_minute: int = 10
@@ -102,6 +107,10 @@ class Settings(BaseSettings):
                 raise ValueError(f"Variáveis obrigatórias ausentes em {self.app_env}: {', '.join(missing)}")
             if "*" in self.cors_origin_list:
                 raise ValueError("CORS_ORIGINS não pode conter '*' em produção")
+            for name, url in (("PUBLIC_API_URL", self.public_api_url), ("FRONTEND_URL", self.frontend_url)):
+                if not url.startswith("https://"):
+                    # Sem isso o OAuth do Google, o webhook da Evolution e os links de e-mail apontam para localhost.
+                    raise ValueError(f"{name} deve ser https em {self.app_env} (valor atual: {url})")
         elif not self.jwt_secret:
             # Em desenvolvimento/test usamos um segredo determinístico apenas para facilitar o setup.
             object.__setattr__(self, "jwt_secret", "dev-only-secret-change-me-please-0123456789abcdef")

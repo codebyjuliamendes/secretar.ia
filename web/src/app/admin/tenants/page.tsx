@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { Modal } from "@/components/ui/modal";
+import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, PageHeader, Pagination, Select, Skeleton, Table, Td, Textarea, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
@@ -23,6 +23,7 @@ export default function AdminTenantsPage() {
   const { data, error, loading, refetch } = useQuery(() => api.get<Paginated<AdminTenant>>("admin/tenants", { search: q, status, limit: LIMIT, offset }), [q, status, offset]);
 
   const updating = useRef<Set<string>>(new Set());
+  const [confirmStatus, setConfirmStatus] = useState<{ tenant: AdminTenant; status: TenantStatus } | null>(null);
 
   async function update(t: AdminTenant, patch: Partial<Pick<AdminTenant, "plan" | "status">>) {
     if (updating.current.has(t.id)) return;
@@ -63,7 +64,7 @@ export default function AdminTenantsPage() {
                 <tr key={t.id}>
                   <Td><p className="font-medium">{t.name}</p><p className="text-xs text-muted">{formatPhone(t.whatsapp)}</p></Td>
                   <Td>
-                    <Select aria-label={`Status de ${t.name}`} value={t.status} onChange={(e) => update(t, { status: e.target.value as TenantStatus })} className="w-44">
+                    <Select aria-label={`Status de ${t.name}`} value={t.status} onChange={(e) => { const s = e.target.value as TenantStatus; if (s === "SUSPENDED" || s === "CANCELED") setConfirmStatus({ tenant: t, status: s }); else void update(t, { status: s }); }} className="w-44">
                       {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                     </Select>
                   </Td>
@@ -83,7 +84,20 @@ export default function AdminTenantsPage() {
         </>
       )}
       <CreateTenantModal open={modal} onClose={() => setModal(false)} onCreated={() => { setModal(false); void refetch(); }} />
-    </>
+    <ConfirmDialog
+        open={!!confirmStatus}
+        onClose={() => setConfirmStatus(null)}
+        onConfirm={async () => {
+          if (!confirmStatus) return;
+          await update(confirmStatus.tenant, { status: confirmStatus.status });
+          setConfirmStatus(null);
+        }}
+        danger
+        title={confirmStatus?.status === "CANCELED" ? "Cancelar clínica" : "Suspender clínica"}
+        description={`${confirmStatus?.tenant.name ?? "A clínica"} deixará de atender pacientes pela assistente até voltar a ficar ativa.`}
+        confirmLabel="Confirmar"
+      />
+      </>
   );
 }
 

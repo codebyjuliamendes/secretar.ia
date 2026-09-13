@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import jobs  # noqa: F401 - garante registro das tarefas
 from app.api import admin, auth, clinic, integrations, internal, webhooks
@@ -41,9 +43,10 @@ def create_app(*, run_background: bool = True) -> FastAPI:
         await ensure_super_admin(settings.super_admin_email)
         stop = asyncio.Event()
         tasks_: list[asyncio.Task] = []
-        if run_background:
+        background = run_background and settings.run_background_jobs
+        if background:
             tasks_ = [asyncio.create_task(worker_loop(stop)), asyncio.create_task(scheduler_loop(stop))]
-        log.info("app_started", env=settings.app_env, background=run_background)
+        log.info("app_started", env=settings.app_env, background=background)
         try:
             yield
         finally:
@@ -78,8 +81,25 @@ def create_app(*, run_background: bool = True) -> FastAPI:
     async def request_context(request: Request, call_next):
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
         token = request_id_var.set(rid)
+        started = time.perf_counter()
         try:
-            response = await call_next(request)
+            # Teto de corpo antes de ler qualquer byte: um POST gigante não ocupa memória nem CPU.
+            declared = request.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > settings.max_request_body_bytes:
+                response = JSONResponse(
+                    status_code=413,
+                    content={"error": {"code": "payload_too_large", "message": "Corpo da requisição grande demais."}},
+                )
+            else:
+                response = await call_next(request)
+            if request.url.path not in ("/health", "/ready"):
+                log.info(
+                    "http_request",
+                    method=request.method,
+                    path=request.url.path,
+                    status=response.status_code,
+                    ms=round((time.perf_counter() - started) * 1000),
+                )
         finally:
             request_id_var.reset(token)
         response.headers["X-Request-Id"] = rid

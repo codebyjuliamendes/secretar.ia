@@ -206,7 +206,7 @@ async def upload_knowledge(
     """PDF (texto extraído) ou .txt/.md. Conteúdo longo vira várias partes; a cota é verificada antes."""
     from app.errors import AppError
 
-    knowledge.assert_enabled(ctx.tenant)
+    await knowledge_sources.assert_document_slot(ctx.tenant)
     data = await file.read(knowledge_sources.MAX_UPLOAD_BYTES + 1)
     if len(data) > knowledge_sources.MAX_UPLOAD_BYTES:
         raise AppError("Arquivo acima de 10 MB.", code="file_too_large", status_code=413)
@@ -246,7 +246,7 @@ async def import_knowledge_url(
     settings: Settings = Depends(get_settings_dep),
 ):
     """Página HTML, PDF ou texto público. Hosts internos são recusados (SSRF)."""
-    knowledge.assert_enabled(ctx.tenant)
+    await knowledge_sources.assert_document_slot(ctx.tenant)
     fetched = await knowledge_sources.fetch_url(settings, data.url)
     items = await knowledge_sources.import_text(
         settings,
@@ -310,6 +310,24 @@ async def google_calendar_connect(
 ):
     """Devolve a URL de autorização do Google; o retorno cai em /api/integrations/google/callback."""
     return await calendar_sync.start_connect(settings, ctx.tenant, actor_user_id=ctx.user.id, ip=client_ip(request))
+
+
+class GoogleCompleteIn(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=10, max_length=4096)
+
+
+@router.post("/integrations/google/complete")
+async def google_calendar_complete(
+    data: GoogleCompleteIn,
+    ctx: TenantContext = Depends(require_permission(Permission.INTEGRATIONS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Conclui o OAuth iniciado em /connect: o state precisa ser deste usuário e desta clínica."""
+    await calendar_sync.complete_connect(
+        settings, code=data.code, state=data.state, expected_user_id=ctx.user.id, expected_tenant_id=ctx.tenant_id
+    )
+    return await calendar_sync.status(settings, ctx.tenant_id)
 
 
 @router.post("/integrations/google/disconnect")

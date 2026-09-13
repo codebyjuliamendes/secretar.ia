@@ -14,7 +14,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
 
 # Dependencias primeiro (cache de camada)
 COPY pyproject.toml uv.lock ./
@@ -32,5 +32,6 @@ EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://localhost:8000/health || exit 1
 
-# Aplica migrations e sobe a API
-CMD ["sh", "-c", "uv run prisma migrate deploy --schema=prisma/schema.prisma && uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Aplica migrations (desligue com RUN_MIGRATIONS_ON_START=false quando houver release command separado) e sobe a
+# API com `exec`: o Uvicorn vira PID 1 e recebe SIGTERM (shutdown gracioso do worker/scheduler no rolling deploy).
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-true}\" = \"true\" ]; then uv run prisma migrate deploy --schema=prisma/schema.prisma; fi && exec uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-keep-alive 15 --limit-concurrency 300 --timeout-graceful-shutdown 25"]

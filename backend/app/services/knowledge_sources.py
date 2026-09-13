@@ -28,7 +28,7 @@ from pypdf import PdfReader
 
 from app.config import Settings
 from app.db import db
-from app.domain.plans import knowledge_documents_limit
+from app.domain.plans import knowledge_documents_limit, within_limit
 from app.errors import AppError, QuotaExceededError
 from app.integrations.gemini import AIProviderError
 from app.logging import get_logger
@@ -48,6 +48,8 @@ TEXT_MIMES = ("text/plain", "text/markdown")
 USER_AGENT = "Secretar.ia/1.0 (base de conhecimento; +https://secretar.ia)"
 OCR_MIN_PAGE_CHARS = 40  # página com menos texto que isso é tratada como digitalizada
 OCR_MAX_PAGES = 20
+PDF_MAX_PAGES = 300  # acima disso o parse ocupa a CPU por minutos; peça para dividir o arquivo
+URL_TOTAL_TIMEOUT_SECONDS = 30.0  # teto da requisição inteira, contra servidor que goteja bytes
 OCR_MAX_SIDE_PX = 2000
 OCR_MAX_IMAGE_BYTES = media_service.MAX_IMAGE_BYTES
 OCR_PROMPT = (
@@ -130,7 +132,7 @@ async def _ocr_pages(settings: Settings, pages_to_read: list) -> dict[int, str]:
         return {}
     out: dict[int, str] = {}
     for idx, page in pages_to_read[:OCR_MAX_PAGES]:
-        image = page_image_for_ocr(page)
+        image = await asyncio.to_thread(page_image_for_ocr, page)  # decodificação de imagem é CPU
         if image is None:
             continue
         try:
@@ -147,18 +149,25 @@ async def _ocr_pages(settings: Settings, pages_to_read: list) -> dict[int, str]:
     return out
 
 
+def _parse_pdf_sync(data: bytes) -> tuple[list, list[str]]:
+    """Parse + extração de texto (CPU): roda fora do event loop para não travar a API com um PDF pesado."""
+    reader = PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        try:
+            reader.decrypt("")
+        except Exception as exc:  # noqa: BLE001
+            raise AppError("O PDF está protegido por senha.", code="pdf_encrypted") from exc
+    if len(reader.pages) > PDF_MAX_PAGES:
+        raise AppError(f"O PDF tem mais de {PDF_MAX_PAGES} páginas; divida o arquivo.", code="pdf_too_many_pages")
+    pages = list(reader.pages)
+    return pages, [_normalize_page(page.extract_text() or "") for page in pages]
+
+
 async def extract_pdf_text(settings: Settings, data: bytes) -> PdfText:
     if not data.startswith(b"%PDF"):
         raise AppError("O arquivo não é um PDF válido.", code="pdf_invalid")
     try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
-            try:
-                reader.decrypt("")
-            except Exception as exc:  # noqa: BLE001
-                raise AppError("O PDF está protegido por senha.", code="pdf_encrypted") from exc
-        pages = list(reader.pages)
-        texts = [_normalize_page(page.extract_text() or "") for page in pages]
+        pages, texts = await asyncio.to_thread(_parse_pdf_sync, data)
     except AppError:
         raise
     except Exception as exc:  # noqa: BLE001 - pypdf lança várias classes para arquivo corrompido
@@ -260,22 +269,22 @@ def _validate_url(url: str) -> httpx.URL:
     return parsed
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
 def is_public_ip(ip: str) -> bool:
+    """Só endereços globais; IPv6 com IPv4 embutido (mapeado, 6to4, Teredo, NAT64) é julgado pelo IPv4."""
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    if addr.version == 6 and addr.ipv4_mapped is not None:
-        addr = addr.ipv4_mapped
-    return not (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_reserved
-        or addr.is_unspecified
-        or (addr.version == 4 and addr in ipaddress.ip_network("100.64.0.0/10"))  # NAT compartilhado (RFC 6598)
-    )
+    if addr.version == 6:
+        embedded = addr.ipv4_mapped or addr.sixtofour or (addr.teredo[1] if addr.teredo else None)
+        if embedded is None and addr in _NAT64:
+            embedded = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+        if embedded is not None:
+            return is_public_ip(str(embedded))
+    return addr.is_global and not addr.is_multicast
 
 
 async def _resolve_host(host: str) -> list[str]:
@@ -309,6 +318,14 @@ def pinned_request(url: httpx.URL, ip: str) -> tuple[httpx.URL, dict[str, str], 
 
 
 async def fetch_url(settings: Settings, url: str) -> FetchedSource:
+    try:
+        async with asyncio.timeout(URL_TOTAL_TIMEOUT_SECONDS):
+            return await _fetch_url(settings, url)
+    except TimeoutError as exc:
+        raise AppError("A página demorou demais para responder.", code="url_fetch_failed") from exc
+
+
+async def _fetch_url(settings: Settings, url: str) -> FetchedSource:
     current = _validate_url(url)
     body = bytearray()
     ctype = ""
@@ -349,7 +366,10 @@ async def fetch_url(settings: Settings, url: str) -> FetchedSource:
     if ctype == PDF_MIME or data[:5] == b"%PDF-":
         pdf = await extract_pdf_text(settings, data)
         return FetchedSource(pdf.text, None, str(current), PDF_MIME, "pdf", ocr_pages=pdf.ocr_pages)
-    decoded = data.decode(charset or "utf-8", errors="replace")
+    try:
+        decoded = data.decode(charset or "utf-8", errors="replace")
+    except LookupError:  # charset inventado no cabeçalho
+        decoded = data.decode("utf-8", errors="replace")
     if ctype in HTML_MIMES or (not ctype and "<html" in decoded[:2000].lower()):
         title, text = html_to_text(decoded)
         kind = "html"
@@ -407,6 +427,19 @@ def part_titles(title: str, count: int) -> list[str]:
     suffix_len = len(f" ({count}/{count})")
     base = title[: 120 - suffix_len].rstrip()
     return [f"{base} ({i}/{count})" for i in range(1, count + 1)]
+
+
+async def assert_document_slot(tenant) -> None:
+    """Antes de gastar rede/CPU/IA com o arquivo: há vaga para pelo menos um documento?"""
+    knowledge.assert_enabled(tenant)
+    limit = knowledge_documents_limit(tenant)
+    used = await db.knowledgedocument.count(where={"tenantId": tenant.id})
+    if not within_limit(used, limit):
+        raise QuotaExceededError(
+            f"Seu plano permite {limit} documentos na base de conhecimento.",
+            code="knowledge_limit",
+            details={"limit": limit},
+        )
 
 
 async def import_text(

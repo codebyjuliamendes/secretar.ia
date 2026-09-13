@@ -9,7 +9,6 @@ from fastapi.responses import RedirectResponse
 
 from app.config import Settings
 from app.deps import get_settings_dep
-from app.errors import AppError
 from app.logging import get_logger
 from app.services import calendar_sync
 
@@ -29,12 +28,15 @@ async def google_callback(
     tenant_path = f"{frontend}/app/{payload['tid']}/settings" if payload else f"{frontend}/app"
     if error:
         return RedirectResponse(f"{tenant_path}?{urlencode({'google': 'error', 'reason': 'denied'})}", status_code=303)
-    try:
-        await calendar_sync.complete_connect(settings, code=code, state=state)
-    except AppError as exc:
-        log.warning("google_callback_failed", code=exc.code)
-        return RedirectResponse(f"{tenant_path}?{urlencode({'google': 'error', 'reason': exc.code})}", status_code=303)
-    return RedirectResponse(f"{tenant_path}?google=connected", status_code=303)
+    if payload is None or not code:
+        return RedirectResponse(
+            f"{tenant_path}?{urlencode({'google': 'error', 'reason': 'invalid_state'})}", status_code=303
+        )
+    # A conclusão acontece pelo frontend autenticado (POST /clinic/{id}/integrations/google/complete): só quem
+    # iniciou a autorização, logado, consegue vincular a agenda a esta clínica.
+    return RedirectResponse(
+        f"{tenant_path}?{urlencode({'google': 'pending', 'code': code, 'state': state})}", status_code=303
+    )
 
 
 @router.post("/google/notify", include_in_schema=False, status_code=204)

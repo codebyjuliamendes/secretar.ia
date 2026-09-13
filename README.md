@@ -214,9 +214,11 @@ com eventos `MESSAGES_UPSERT` e `CONNECTION_UPDATE` (feito automaticamente ao cr
 Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
 
 1. Provisione PostgreSQL e defina as variáveis acima com `APP_ENV=production`.
-2. Build da imagem `backend/Dockerfile`; o `CMD` aplica `prisma migrate deploy` e sobe o Uvicorn.
-   Health check em `GET /health`. Rode **uma** réplica com worker ou mantenha várias: o claim de jobs usa
-   `FOR UPDATE SKIP LOCKED` e o agendador usa advisory lock.
+2. Build da imagem `backend/Dockerfile`; o `CMD` aplica `prisma migrate deploy` (desligue com
+   `RUN_MIGRATIONS_ON_START=false` se a plataforma tiver release command) e sobe o Uvicorn com `exec`
+   (shutdown gracioso). Liveness em `GET /health` (sem banco); readiness em `GET /ready` (com banco) para o
+   balanceador. Em várias réplicas, deixe `RUN_BACKGROUND_JOBS=true` em uma e `false` nas demais; a fila
+   usa `FOR UPDATE SKIP LOCKED` e a manutenção diária é idempotente por dia.
 3. Crie o primeiro admin: `python -m app.cli create-superadmin ...` (ou `SUPER_ADMIN_EMAIL`).
 4. Aponte o webhook do Stripe para `/api/webhooks/billing` e configure `STRIPE_WEBHOOK_SECRET`.
    Para checkout online, crie dois preços recorrentes no Stripe (Básico e Pro), configure `STRIPE_SECRET_KEY`,
@@ -227,8 +229,10 @@ Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
 5. Opcional: cron externo chamando `POST /api/internal/cron/daily` com `Authorization: Bearer $CRON_SECRET`
    (o agendador interno já roda às 12:00 UTC).
 
-Frontend (Vercel ou Node): defina `API_URL` (URL pública do backend) e `COOKIE_SECURE=true`; adicione a URL
-do frontend em `CORS_ORIGINS` e `FRONTEND_URL` do backend.
+Frontend: imagem `web/Dockerfile` (Next standalone, respeita `PORT`) ou Vercel/Node (`npm run build && npm start`).
+Defina `API_URL` (URL pública do backend) e `COOKIE_SECURE=true`; adicione a URL do frontend em `CORS_ORIGINS` e
+`FRONTEND_URL` do backend, e a URL pública da API em `PUBLIC_API_URL` (ambas https em produção; o backend se
+recusa a iniciar sem isso).
 
 Ambientes: use bancos e segredos distintos para `development`, `staging` e `production`; nunca reutilize
 `JWT_SECRET`.

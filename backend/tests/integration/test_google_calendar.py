@@ -88,7 +88,20 @@ async def test_connect_callback_sync_and_disconnect(client, clean_db):
     assert await clean_db.calendarconnection.count() == 0
 
     ok = await client.get("/api/integrations/google/callback", params={"code": "console", "state": qs["state"][0]})
-    assert ok.status_code == 303 and ok.headers["location"].endswith(f"/app/{tid}/settings?google=connected")
+    assert ok.status_code == 303 and f"/app/{tid}/settings?google=pending" in ok.headers["location"]
+    assert await clean_db.calendarconnection.count() == 0  # nada gravado até o usuário logado concluir
+    # Outro usuário (ou outra clínica) não consegue concluir com este state.
+    intruder = await register_user(client)
+    hijack = await client.post(
+        f"/api/clinic/{intruder['tenantId']}/integrations/google/complete",
+        headers=auth_headers(intruder),
+        json={"code": "console", "state": qs["state"][0]},
+    )
+    assert hijack.status_code == 403 and await clean_db.calendarconnection.count() == 0
+    done = await client.post(
+        f"/api/clinic/{tid}/integrations/google/complete", headers=h, json={"code": "console", "state": qs["state"][0]}
+    )
+    assert done.status_code == 200 and done.json()["connected"] is True
     conn = await clean_db.calendarconnection.find_unique(where={"tenantId": tid})
     assert conn and conn.accountEmail == "agenda@console.local" and conn.refreshTokenEnc != "console-refresh"
     assert decrypt_secret(get_settings(), conn.refreshTokenEnc) == "console-refresh"

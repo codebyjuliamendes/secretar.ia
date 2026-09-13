@@ -194,6 +194,10 @@ async def test_connecting_via_callback_schedules_a_pull(client, clean_db):
     state = parse_qs(urlparse(start).query)["state"][0]
     ok = await client.get("/api/integrations/google/callback", params={"code": "console", "state": state})
     assert ok.status_code == 303
+    done = await client.post(
+        f"/api/clinic/{tid}/integrations/google/complete", headers=h, json={"code": "console", "state": state}
+    )
+    assert done.status_code == 200
     assert await clean_db.job.count(where={"name": "pull-calendar"}) == 1
     await _drain_jobs("pull-calendar")
     assert await clean_db.externalbusy.count(where={"tenantId": tid}) == 1

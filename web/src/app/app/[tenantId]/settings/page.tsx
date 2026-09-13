@@ -255,14 +255,25 @@ function GoogleCalendarCard({ canManage }: { canManage: boolean }) {
   const { data, error, refetch, setData } = useQuery(() => api.get<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google`), [tenant.id]);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Retorno do OAuth: ?google=connected|error&reason=...
+  // Retorno do OAuth: ?google=pending&code=…&state=… (concluímos aqui, autenticados) | ?google=error&reason=…
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const result = params.get("google");
     if (!result) return;
-    if (result === "connected") toast.success("Google Calendar conectado. Os agendamentos futuros serão sincronizados.");
-    else toast.error(`Não foi possível conectar o Google Calendar (${params.get("reason") ?? "erro"}).`);
     window.history.replaceState(null, "", window.location.pathname);
+    if (result === "pending") {
+      void (async () => {
+        try {
+          const r = await api.post<GoogleCalendarStatus>(`clinic/${tenant.id}/integrations/google/complete`, { code: params.get("code"), state: params.get("state") });
+          setData(r);
+          toast.success("Google Calendar conectado. Os agendamentos futuros serão sincronizados.");
+        } catch (err) {
+          toast.error(`Não foi possível conectar o Google Calendar. ${errorMessage(err)}`);
+        }
+      })();
+      return;
+    }
+    toast.error(`Não foi possível conectar o Google Calendar (${params.get("reason") ?? "erro"}).`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

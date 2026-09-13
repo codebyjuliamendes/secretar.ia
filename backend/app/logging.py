@@ -13,7 +13,21 @@ request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("req
 tenant_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("tenant_id", default=None)
 user_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("user_id", default=None)
 
-_SENSITIVE_KEYS = {"password", "passwordhash", "token", "secret", "authorization", "apikey", "api_key"}
+_SENSITIVE_KEYS = {
+    "password",
+    "passwordhash",
+    "token",
+    "secret",
+    "authorization",
+    "apikey",
+    "api_key",
+    "email",
+    "phone",
+    "to",
+    "text",
+    "refreshtoken",
+    "accesstoken",
+}
 
 
 def _scrub(value: Any) -> Any:

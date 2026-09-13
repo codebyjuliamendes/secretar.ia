@@ -123,7 +123,10 @@ class GeminiClient:
         except ValueError as exc:
             raise AIProviderError("Resposta do Gemini não é JSON") from exc
         try:
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            parts = data["candidates"][0]["content"]["parts"]
+            text = "".join(str(p.get("text", "")) for p in parts if isinstance(p, dict))
+            if not text:
+                raise KeyError("text")
         except (KeyError, IndexError, TypeError) as exc:
             reason = (data.get("promptFeedback") or {}).get("blockReason")
             raise AIProviderError(f"Resposta inválida do Gemini (blockReason={reason})") from exc

@@ -102,6 +102,9 @@ async def retry_job(job_id: str):
     job = await db.job.find_unique(where={"id": job_id})
     if job is None:
         raise AppError("Job não encontrado.", code="not_found", status_code=404)
+    if str(job.status) != "FAILED":
+        # Reenfileirar um RUNNING faria outro worker executá-lo em paralelo (ex.: evento duplicado no Google).
+        raise AppError("Só tarefas com falha podem ser reprocessadas.", code="job_not_failed", status_code=409)
     updated = await db.job.update(
         where={"id": job_id},
         data={"status": "PENDING", "retries": 0, "runAt": datetime.now(UTC), "error": None},
