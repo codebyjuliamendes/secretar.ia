@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.db import db
+from app.domain.niches import niche_for
 from app.domain.plans import limits_for
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
@@ -25,10 +26,16 @@ DEFAULT_UPSELL_MESSAGE = (
 WINDOW_DAYS = 7  # tolerância para não perder pacientes se a rotina falhar por alguns dias
 
 
+def default_message_for(tenant) -> str:
+    """Texto pronto do nicho (o cliente não precisa escrever nada); a clínica genérica mantém o texto histórico."""
+    return niche_for(getattr(tenant, "niche", None)).campaign or DEFAULT_UPSELL_MESSAGE
+
+
 def render_message(template: str | None, *, nome: str, clinica: str, servico: str) -> str:
     tpl = template or DEFAULT_UPSELL_MESSAGE
     return (
         tpl.replace("{nome}", nome)
+        .replace("{negocio}", clinica)
         .replace("{clinica}", clinica)
         .replace("{servico}", servico)
         .replace("{name}", nome)
@@ -99,7 +106,7 @@ async def run_upsell_campaign(*, tenant_id: str | None = None, dry_run: bool = F
             except UniqueViolationError:
                 continue
             text = render_message(
-                tenant.upsellMessage,
+                tenant.upsellMessage or default_message_for(tenant),
                 nome=appt.patient.name or "tudo bem?",
                 clinica=tenant.name,
                 servico=appt.service,

@@ -549,6 +549,37 @@ async def create_service(
     )
 
 
+class ServicesConfirmIn(BaseModel):
+    items: list[ServiceIn] = Field(min_length=1, max_length=80)
+
+
+@router.post("/services/import/preview")
+async def import_services_preview(
+    file: UploadFile = File(...),
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+    settings: Settings = Depends(get_settings_dep),
+):
+    """Foto ou PDF da tabela de preços → lista de serviços para o cliente conferir antes de gravar."""
+    from app.services import service_import
+
+    data = await service_import.read_upload(file)
+    items = await service_import.extract_services(settings, data, file.content_type or "", file.filename or "")
+    return {"items": items}
+
+
+@router.post("/services/import/confirm", status_code=status.HTTP_201_CREATED)
+async def import_services_confirm(
+    data: ServicesConfirmIn,
+    request: Request,
+    ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE)),
+):
+    from app.services import service_import
+
+    return await service_import.confirm_import(
+        ctx.tenant_id, [i.model_dump() for i in data.items], actor_user_id=ctx.user.id, ip=client_ip(request)
+    )
+
+
 @router.patch("/services/{service_id}")
 async def update_service(
     service_id: str,

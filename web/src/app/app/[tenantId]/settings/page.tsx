@@ -157,9 +157,9 @@ function UpsellForm({ settings, canManage, onSaved }: { settings: TenantSettings
           </div>
           <Switch checked={enabled} onChange={setEnabled} label="Ativar campanha de retorno" />
         </div>
-        <Field label="Dias após o procedimento" htmlFor="days" hint="Ex.: 150 dias (aprox. 5 meses) para toxina botulínica."><Input id="days" type="number" min={7} max={730} value={days} onChange={(e) => setDays(e.target.value)} className="sm:max-w-40" /></Field>
-        <Field label="Mensagem" htmlFor="upsell-msg" hint="Use {nome}, {clinica} e {servico}. Deixe vazio para usar a mensagem padrão.">
-          <Textarea id="upsell-msg" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} />
+        <Field label="Dias após o atendimento" htmlFor="days" hint="Sugerido pelo seu ramo; ajuste se quiser."><Input id="days" type="number" min={7} max={730} value={days} onChange={(e) => setDays(e.target.value)} className="sm:max-w-40" /></Field>
+        <Field label="Mensagem" htmlFor="upsell-msg" hint="Já vem pronta para o seu ramo. Se quiser a sua, use {nome}, {negocio} e {servico}.">
+          <Textarea id="upsell-msg" rows={4} value={message} placeholder={settings.upsellDefaultMessage} onChange={(e) => setMessage(e.target.value)} />
         </Field>
         {canManage && allowed && (
           <div className="flex flex-wrap items-center gap-2">

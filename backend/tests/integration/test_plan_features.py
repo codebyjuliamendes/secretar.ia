@@ -203,3 +203,27 @@ async def test_public_config_lists_plans_niches_and_sales_contact(client):
         and body["sales"]["whatsapp"].isdigit()
         or body["sales"]["whatsapp"] == ""
     )
+
+
+async def test_return_campaign_text_and_days_follow_the_niche(client, clean_db):
+    from app.services.marketing import default_message_for, render_message
+
+    reg = await register_user(client, active=False)
+    tid, h = reg["tenantId"], auth_headers(reg)
+    admin_user = await register_user(client, active=False)
+    await clean_db.user.update(where={"email": admin_user["email"]}, data={"platformRole": "SUPER_ADMIN"})
+    ah = auth_headers(await login(client, admin_user["email"], admin_user["password"]))
+    before = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
+    assert before["upsellDays"] == 150 and "última visita" in before["upsellDefaultMessage"]
+    await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"niche": "barbearia", "plan": "PRO"})
+    after = (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()
+    assert after["upsellDays"] == 21 and after["upsellDefaultMessage"].startswith("E aí, {nome}! Aqui é da ")
+    tenant = await clean_db.tenant.find_unique(where={"id": tid})
+    text = render_message(
+        tenant.upsellMessage or default_message_for(tenant), nome="Carlos", clinica=tenant.name, servico="Corte"
+    )
+    assert text.startswith(f"E aí, Carlos! Aqui é da {tenant.name}.") and "{" not in text
+    # Cliente que já mexeu nos dias não é sobrescrito por uma troca de nicho.
+    await client.patch(f"/api/clinic/{tid}/settings", headers=h, json={"upsellDays": 45})
+    await client.patch(f"/api/admin/tenants/{tid}", headers=ah, json={"niche": "salao"})
+    assert (await client.get(f"/api/clinic/{tid}/settings", headers=h)).json()["upsellDays"] == 45

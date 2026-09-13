@@ -23,6 +23,7 @@ class Niche:
     tone: str = "acolhedor"  # tom sugerido quando o admin escolhe o nicho (cliente pode trocar)
     campaign: str = ""  # texto pronto da campanha de retorno ({nome} e {negocio} são trocados)
     intro: str = ""  # apresentação no primeiro contato de cada pessoa ({negocio} é trocado)
+    campaign_days: int = 150  # prazo típico entre o atendimento e o convite de retorno
 
 
 NICHES: dict[str, Niche] = {
@@ -44,6 +45,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Respondo em segundos, tiro dúvidas e agendo consultas; a "
             "equipe acompanha tudo por aqui e assume quando precisar. Como posso ajudar?"
         ),
+        campaign_days=150,
     ),
     "odontologia": Niche(
         "odontologia",
@@ -64,6 +66,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Tiro dúvidas e agendo consultas na hora; a equipe "
             "acompanha a conversa e assume quando precisar. Como posso ajudar?"
         ),
+        campaign_days=180,
     ),
     "psicologia": Niche(
         "psicologia",
@@ -84,6 +87,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Cuido de horários e informações práticas; quem acompanha "
             "você é a equipe, que vê esta conversa. Como posso ajudar?"
         ),
+        campaign_days=30,
     ),
     "fisioterapia": Niche(
         "fisioterapia",
@@ -103,6 +107,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Agendo sessões e tiro dúvidas rápidas; a equipe "
             "acompanha e assume quando precisar. Como posso ajudar?"
         ),
+        campaign_days=30,
     ),
     "salao": Niche(
         "salao",
@@ -123,6 +128,7 @@ NICHES: dict[str, Niche] = {
             "Oi! Sou a assistente virtual do {negocio}. Agendo horários e respondo sobre serviços e valores; a "
             "equipe acompanha tudo por aqui. Como posso ajudar?"
         ),
+        campaign_days=35,
     ),
     "barbearia": Niche(
         "barbearia",
@@ -142,6 +148,7 @@ NICHES: dict[str, Niche] = {
             "Fala! Sou a assistente virtual da {negocio}. Marco horário e respondo sobre serviços e preços; a "
             "equipe acompanha por aqui. O que precisa?"
         ),
+        campaign_days=21,
     ),
     "pet": Niche(
         "pet",
@@ -162,6 +169,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Agendo atendimentos e respondo dúvidas sobre serviços; a "
             "equipe acompanha e assume quando precisar. Como posso ajudar você e seu pet?"
         ),
+        campaign_days=90,
     ),
     "advocacia": Niche(
         "advocacia",
@@ -182,6 +190,7 @@ NICHES: dict[str, Niche] = {
             "Olá. Sou a assistente virtual do {negocio}. Organizo agendamentos e informações práticas; o "
             "atendimento jurídico é feito pela equipe, que acompanha esta conversa. Como posso ajudar?"
         ),
+        campaign_days=180,
     ),
     "contabilidade": Niche(
         "contabilidade",
@@ -201,6 +210,7 @@ NICHES: dict[str, Niche] = {
             "Olá. Sou a assistente virtual do {negocio}. Agendo reuniões e encaminho documentos e dúvidas à "
             "equipe, que acompanha esta conversa. Como posso ajudar?"
         ),
+        campaign_days=90,
     ),
     "academia": Niche(
         "academia",
@@ -220,6 +230,7 @@ NICHES: dict[str, Niche] = {
             "Oi! Sou a assistente virtual da {negocio}. Respondo sobre planos, horários e aulas; a equipe "
             "acompanha por aqui. Como posso ajudar?"
         ),
+        campaign_days=14,
     ),
     "outro": Niche(
         "outro",
@@ -239,6 +250,7 @@ NICHES: dict[str, Niche] = {
             "Olá! Sou a assistente virtual da {negocio}. Respondo em segundos e agendo atendimentos; a equipe "
             "acompanha tudo por aqui e assume quando precisar. Como posso ajudar?"
         ),
+        campaign_days=90,
     ),
 }
 
@@ -260,6 +272,7 @@ def niche_view(key: str | None) -> dict:
         "tone": n.tone,
         "campaign": n.campaign,
         "intro": n.intro,
+        "campaignDays": n.campaign_days,
     }
 
 

@@ -38,6 +38,7 @@ def tenant_settings_view(t) -> dict:
         "upsellEnabled": t.upsellEnabled,
         "upsellMessage": t.upsellMessage,
         "upsellDays": t.upsellDays,
+        "upsellDefaultMessage": fill(niche_for(t.niche).campaign, t.name, "{nome}"),  # {nome} fica visível
         "introEnabled": t.introEnabled,
         "introPreview": fill(niche_for(t.niche).intro, t.name),
         "slotMinutes": t.slotMinutes,
@@ -191,6 +192,7 @@ async def admin_create_tenant(data: dict[str, Any], *, actor_user_id: str, ip: s
                 "businessHours": data.get("businessHours"),
                 "plan": data.get("plan") or "BASIC",
                 "tone": data.get("tone") or niche_for(data.get("niche")).tone,
+                "upsellDays": niche_for(data.get("niche")).campaign_days,
                 "niche": data.get("niche") or "clinica",
                 "status": data.get("status") or "ACTIVE",
             }
@@ -224,6 +226,8 @@ async def admin_update_tenant(tenant_id: str, data: dict[str, Any], *, actor_use
         # o nicho sugere o tom; só troca se o cliente ainda estiver no tom sugerido pelo nicho anterior
         if tenant.tone == niche_for(tenant.niche).tone:
             payload["tone"] = niche_for(payload["niche"]).tone
+        if tenant.upsellDays == niche_for(tenant.niche).campaign_days:
+            payload["upsellDays"] = niche_for(payload["niche"]).campaign_days
     updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
     await audit.record(
         action="admin.tenant_updated",

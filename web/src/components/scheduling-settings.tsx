@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
+import { Modal } from "@/components/ui/modal";
 import { useTenant } from "@/app/app/[tenantId]/layout";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Select, Skeleton, Switch, Table, Td, Th } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -132,6 +133,7 @@ export function ServicesCard({ canManage }: { canManage: boolean }) {
   }
 
   const inFlight = useRef<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
 
   async function toggle(s: Service) {
     if (inFlight.current.has(s.id)) return;
@@ -161,8 +163,9 @@ export function ServicesCard({ canManage }: { canManage: boolean }) {
   }
 
   return (
-    <Card title="Catálogo de serviços">
-      <p className="mb-3 text-sm text-muted">Duração define o bloco na agenda; preço e nome são o que a IA informa aos pacientes.</p>
+    <Card title="Catálogo de serviços" action={canManage ? <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>Importar de foto ou PDF</Button> : undefined}>
+      <p className="mb-3 text-sm text-muted">Duração define o bloco na agenda; preço e nome são o que a IA informa. Tem uma tabela de preços pronta? Mande a foto e a gente preenche.</p>
+      <ImportServicesModal open={importing} onClose={() => setImporting(false)} onImported={async () => { setImporting(false); await refetch(); }} />
       {error ? (
         <ErrorState message={error} onRetry={refetch} />
       ) : loading || !data ? (
@@ -201,5 +204,102 @@ export function ServicesCard({ canManage }: { canManage: boolean }) {
         </form>
       )}
     </Card>
+  );
+}
+
+type Draft = { name: string; priceCents: number | null; durationMin: number | null; description: string | null };
+
+/** Foto/print/PDF da tabela de preços → prévia editável → confirmar. Nada é gravado sem o cliente ver. */
+function ImportServicesModal({ open, onClose, onImported }: { open: boolean; onClose: () => void; onImported: () => Promise<void> | void }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [items, setItems] = useState<Draft[] | null>(null);
+  const [busy, setBusy] = useState<"read" | "save" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function reset() {
+    setFile(null);
+    setItems(null);
+    setError(null);
+    setBusy(null);
+  }
+
+  async function read() {
+    if (!file) return;
+    setBusy("read");
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await api.upload<{ items: Draft[] }>(`clinic/${tenant.id}/services/import/preview`, form);
+      setItems(r.items);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirm() {
+    if (!items?.length) return;
+    setBusy("save");
+    try {
+      const r = await api.post<{ created: unknown[]; skipped: string[] }>(`clinic/${tenant.id}/services/import/confirm`, {
+        items: items.map((i, idx) => ({ name: i.name, priceCents: i.priceCents, durationMin: i.durationMin ?? 60, description: i.description, active: true, sortOrder: idx })),
+      });
+      toast.success(`${r.created.length} serviço(s) importado(s)${r.skipped.length ? `; ${r.skipped.length} já existiam` : ""}.`);
+      reset();
+      await onImported();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function edit(idx: number, patch: Partial<Draft>) {
+    setItems((prev) => (prev ? prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)) : prev));
+  }
+
+  return (
+    <Modal open={open} onClose={() => { reset(); onClose(); }} title="Importar serviços" description="Mande a foto da sua tabela de preços, um print ou um PDF. A IA lê e você confere antes de salvar." size="lg">
+      {items === null ? (
+        <div className="space-y-4">
+          <Field label="Arquivo" htmlFor="svc-import-file" hint="JPG, PNG, WebP ou PDF, até 10 MB.">
+            <Input id="svc-import-file" type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          </Field>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancelar</Button>
+            <Button onClick={read} disabled={!file} loading={busy === "read"}>Ler arquivo</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-muted">Encontrei {items.length} serviço(s). Ajuste o que precisar e confirme; os que já existem no catálogo são pulados.</p>
+          <div className="max-h-80 overflow-auto">
+            <Table>
+              <thead><tr><Th>Serviço</Th><Th>Valor (R$)</Th><Th>Duração (min)</Th><Th /></tr></thead>
+              <tbody>
+                {items.map((it, idx) => (
+                  <tr key={idx}>
+                    <Td><Input aria-label={`Nome do serviço ${idx + 1}`} value={it.name} onChange={(e) => edit(idx, { name: e.target.value })} /></Td>
+                    <Td><Input aria-label={`Valor do serviço ${idx + 1}`} inputMode="decimal" value={it.priceCents == null ? "" : (it.priceCents / 100).toFixed(2).replace(".", ",")} onChange={(e) => { const v = e.target.value.replace(/\./g, "").replace(",", "."); edit(idx, { priceCents: v ? Math.round(Number(v) * 100) : null }); }} className="w-28" /></Td>
+                    <Td><Input aria-label={`Duração do serviço ${idx + 1}`} type="number" min={5} max={600} step={5} value={it.durationMin ?? 60} onChange={(e) => edit(idx, { durationMin: Number(e.target.value) || 60 })} className="w-24" /></Td>
+                    <Td className="text-right"><Button size="sm" variant="ghost" onClick={() => setItems(items.filter((_, i) => i !== idx))}>Remover</Button></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+          {error && <Alert tone="danger">{error}</Alert>}
+          <div className="flex justify-between gap-2">
+            <Button variant="secondary" onClick={() => setItems(null)}>Voltar</Button>
+            <Button onClick={confirm} disabled={!items.length} loading={busy === "save"}>Salvar {items.length} serviço(s)</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

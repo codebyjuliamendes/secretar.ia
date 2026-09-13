@@ -79,6 +79,7 @@ export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNoti
   upsellEnabled: boolean;
   upsellMessage: string | null;
   upsellDays: number;
+  upsellDefaultMessage: string;
   introEnabled: boolean;
   introPreview: string;
   slotMinutes: number;
