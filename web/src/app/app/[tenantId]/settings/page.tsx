@@ -6,7 +6,7 @@ import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, PageH
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { TONE_LABEL } from "@/lib/format";
-import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, KnowledgeSource, TenantSettings, Tone, WhatsAppStatus } from "@/lib/types";
+import type { FeatureAccess, GoogleCalendarStatus, KnowledgeDocument, KnowledgeSource, TenantSettings, Tone, UnansweredQuestion, WhatsAppStatus } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";
 
@@ -30,6 +30,8 @@ export default function SettingsPage() {
             <AvailabilityCard canManage={canManage} />
             <KnowledgeCard canManage={canManage} access={data.featureAccess} />
             <UpsellForm settings={data} canManage={canManage} onSaved={refetch} />
+            <EngagementCard settings={data} canManage={canManage} onSaved={refetch} />
+            <QuestionsCard canManage={canManage} />
           </div>
           <div className="space-y-4">
             <WhatsAppCard canManage={canManage} />
@@ -536,6 +538,172 @@ function KnowledgeCard({ canManage, access }: { canManage: boolean; access: Feat
           </div>
         )}
       </div>
+    </Card>
+  );
+}
+
+/** Lembrete de véspera, sinal por Pix, link público de agendamento e voz: tudo por regra, nada de prompt. */
+function EngagementCard({ settings, canManage, onSaved }: { settings: TenantSettings; canManage: boolean; onSaved: () => Promise<void> | void }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const [form, setForm] = useState({
+    reminderEnabled: settings.reminderEnabled,
+    depositEnabled: settings.depositEnabled,
+    depositValue: settings.depositCents != null ? (settings.depositCents / 100).toFixed(2).replace(".", ",") : "",
+    pixKey: settings.pixKey ?? "",
+    publicBooking: settings.publicBooking,
+    slug: settings.slug ?? "",
+    voiceReplies: settings.voiceReplies,
+  });
+  const [saving, setSaving] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const bookingUrl = settings.bookingUrl?.replace(settings.slug ?? "", form.slug || settings.slug || "");
+
+  async function save() {
+    setSaving(true);
+    setFieldErrors({});
+    try {
+      const cents = form.depositValue ? Math.round(Number(form.depositValue.replace(/\./g, "").replace(",", ".")) * 100) : null;
+      await api.patch(`clinic/${tenant.id}/settings`, {
+        reminderEnabled: form.reminderEnabled,
+        depositEnabled: form.depositEnabled,
+        depositCents: cents,
+        pixKey: form.pixKey || null,
+        publicBooking: form.publicBooking,
+        slug: form.slug || null,
+        voiceReplies: form.voiceReplies,
+      });
+      toast.success("Preferências salvas.");
+      await onSaved();
+    } catch (err) {
+      if (err instanceof ApiError && err.details?.length) setFieldErrors(Object.fromEntries(err.details.map((d) => [d.field, d.message])));
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function copyLink() {
+    if (!bookingUrl) return;
+    try {
+      await navigator.clipboard.writeText(bookingUrl);
+      toast.success("Link copiado.");
+    } catch {
+      toast.info(bookingUrl);
+    }
+  }
+
+  return (
+    <Card title="Confirmação, sinal e agendamento online">
+      <fieldset disabled={!canManage} className="space-y-5">
+        <div className="rounded-lg border border-border p-3">
+          <Switch checked={form.reminderEnabled} onChange={(v) => setForm({ ...form, reminderEnabled: v })} label="Lembrete de véspera com confirmação por resposta" />
+          <p className="mt-2 text-xs text-muted">Na véspera: “{tenant.name}: {`{serviço}`} amanhã às {`{hora}`}. Responda SIM para confirmar ou NÃO para cancelar.” Quem responde NÃO libera o horário, e quem estava na lista de espera daquele dia é avisado na hora.</p>
+        </div>
+        <div className="rounded-lg border border-border p-3">
+          <Switch checked={form.depositEnabled} onChange={(v) => setForm({ ...form, depositEnabled: v })} label="Pedir sinal por Pix para reservar o horário" />
+          <p className="mt-2 text-xs text-muted">A assistente informa o valor e a chave ao registrar o pedido; o horário só é confirmado pela equipe depois do comprovante.</p>
+          {form.depositEnabled && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Field label="Valor do sinal (R$)" htmlFor="dep-value" error={fieldErrors.depositCents}><Input id="dep-value" inputMode="decimal" placeholder="50,00" value={form.depositValue} onChange={(e) => setForm({ ...form, depositValue: e.target.value })} /></Field>
+              <Field label="Chave Pix" htmlFor="dep-key" error={fieldErrors.pixKey}><Input id="dep-key" placeholder="CPF, e-mail, telefone ou aleatória" value={form.pixKey} onChange={(e) => setForm({ ...form, pixKey: e.target.value })} /></Field>
+            </div>
+          )}
+        </div>
+        <div className="rounded-lg border border-border p-3">
+          <Switch checked={form.publicBooking} onChange={(v) => setForm({ ...form, publicBooking: v })} label="Página pública de agendamento" />
+          <p className="mt-2 text-xs text-muted">Coloque o link na bio do Instagram: a pessoa escolhe serviço e horário livre sem falar com ninguém. Usa a mesma agenda e as mesmas regras.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <Field label="Endereço" htmlFor="slug" error={fieldErrors.slug} hint={bookingUrl ?? "Salve para gerar o link."}>
+              <Input id="slug" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} placeholder="minha-barbearia" />
+            </Field>
+            <Button type="button" variant="secondary" onClick={copyLink} disabled={!bookingUrl}>Copiar link</Button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-border p-3">
+          <Switch checked={form.voiceReplies} onChange={(v) => setForm({ ...form, voiceReplies: v })} label="Responder áudio com áudio (experimental)" />
+          <p className="mt-2 text-xs text-muted">Quem manda áudio recebe a resposta em áudio, com uma voz fixa. Se a voz falhar, a resposta vai em texto.</p>
+        </div>
+        {canManage && <Button onClick={save} loading={saving}>Salvar preferências</Button>}
+      </fieldset>
+    </Card>
+  );
+}
+
+/** O que a assistente não soube responder vira sugestão para a base de conhecimento. */
+function QuestionsCard({ canManage }: { canManage: boolean }) {
+  const { tenant } = useTenant();
+  const toast = useToast();
+  const { data, error, refetch } = useQuery(() => api.get<{ items: UnansweredQuestion[] }>(`clinic/${tenant.id}/questions`), [tenant.id]);
+  const [answering, setAnswering] = useState<UnansweredQuestion | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function resolve(q: UnansweredQuestion) {
+    setBusy(q.id);
+    try {
+      await api.post(`clinic/${tenant.id}/questions/resolve`, { ids: q.ids });
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function addToKnowledge() {
+    if (!answering || answer.trim().length < 10) return;
+    setBusy(answering.id);
+    try {
+      await api.post(`clinic/${tenant.id}/knowledge`, { title: answering.question.slice(0, 120), content: `Pergunta: ${answering.question}\nResposta: ${answer.trim()}` });
+      await api.post(`clinic/${tenant.id}/questions/resolve`, { ids: answering.ids });
+      toast.success("Adicionado à base. A assistente já responde isso sozinha.");
+      setAnswering(null);
+      setAnswer("");
+      await refetch();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card title="Perguntas que a assistente não soube responder">
+      <div id="perguntas" />
+      {error ? (
+        <ErrorState message={error} onRetry={refetch} />
+      ) : !data ? (
+        <Skeleton className="h-16" />
+      ) : data.items.length === 0 ? (
+        <p className="text-sm text-muted">Nenhuma nos últimos 30 dias. Quando alguém perguntar algo que a assistente não sabe, aparece aqui com um botão para adicionar a resposta à base.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.items.map((q) => (
+            <li key={q.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">“{q.question}”</p>
+                <p className="text-xs text-muted">{q.people} pessoa(s) · {q.count} vez(es)</p>
+                {answering?.id === q.id && (
+                  <div className="mt-2 space-y-2">
+                    <Textarea rows={3} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Escreva a resposta como você diria ao cliente." aria-label="Resposta" />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={addToKnowledge} loading={busy === q.id} disabled={answer.trim().length < 10}>Salvar na base</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setAnswering(null)}>Cancelar</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {canManage && answering?.id !== q.id && (
+                <div className="flex gap-1">
+                  <Button size="sm" variant="secondary" onClick={() => { setAnswering(q); setAnswer(""); }}>Adicionar à base</Button>
+                  <Button size="sm" variant="ghost" onClick={() => resolve(q)} loading={busy === q.id}>Ignorar</Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

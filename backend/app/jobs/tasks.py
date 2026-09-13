@@ -20,6 +20,7 @@ UPSELL_CAMPAIGN = "upsell-campaign"
 SYNC_CALENDAR = "sync-calendar"
 PULL_CALENDAR = "pull-calendar"
 MONTHLY_REPORTS = "monthly-reports"
+SEND_REMINDERS = "send-reminders"
 
 
 @register_task(SEND_WHATSAPP)
@@ -72,6 +73,15 @@ async def monthly_reports(payload: dict[str, Any]) -> None:
 
     result = await send_monthly_reports(get_settings())
     log.info("monthly_reports_task_done", **result)
+
+
+@register_task(SEND_REMINDERS)
+async def send_reminders_task(payload: dict[str, Any]) -> None:
+    from app.services.engagement import questions_digest, send_reminders
+
+    sent = await send_reminders()
+    digests = await questions_digest(get_settings())
+    log.info("reminders_task_done", reminders=sent, digests=digests)
 
 
 @register_task(SYNC_CALENDAR)

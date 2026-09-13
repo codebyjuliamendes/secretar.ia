@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.config import get_settings
 from app.db import db
 from app.domain.niches import NICHES, fill, niche_for, niche_view
 from app.domain.plans import Plan, feature_access_view, limits_for, plan_public_view
@@ -40,6 +41,15 @@ def tenant_settings_view(t) -> dict:
         "upsellDays": t.upsellDays,
         "upsellDefaultMessage": fill(niche_for(t.niche).campaign, t.name, "{nome}"),  # {nome} fica visível
         "introEnabled": t.introEnabled,
+        "reminderEnabled": t.reminderEnabled,
+        "depositEnabled": t.depositEnabled,
+        "depositCents": t.depositCents,
+        "pixKey": t.pixKey,
+        "voiceReplies": t.voiceReplies,
+        "publicBooking": t.publicBooking,
+        "slug": t.slug,
+        "bookingUrl": f"{get_settings().frontend_url.rstrip('/')}/agendar/{t.slug}" if t.slug else None,
+        "referralCode": t.referralCode,
         "introPreview": fill(niche_for(t.niche).intro, t.name),
         "slotMinutes": t.slotMinutes,
         "features": t.features or {},
@@ -68,7 +78,12 @@ async def update_settings(tenant_id: str, data: dict[str, Any], *, actor_user_id
     payload = {k: v for k, v in data.items() if v is not None}
     if "upsellEnabled" in payload and payload["upsellEnabled"] and not limits_for(str(tenant.plan)).upsell_campaigns:
         raise ConflictError("Campanhas de upsell não estão disponíveis no seu plano.", code="plan_feature_locked")
-    updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
+    if payload.get("depositEnabled") and not (payload.get("pixKey") or tenant.pixKey):
+        raise ConflictError("Informe a chave Pix para pedir sinal.", code="pix_key_required")
+    try:
+        updated = await db.tenant.update(where={"id": tenant_id}, data=payload)
+    except UniqueViolationError as exc:
+        raise ConflictError("Este endereço público já está em uso. Escolha outro.", code="slug_taken") from exc
     await audit.record(
         action="tenant.settings_updated",
         resource_type="tenant",

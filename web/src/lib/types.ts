@@ -83,6 +83,15 @@ export interface TenantSettings extends Omit<TenantSummary, "role" | "unreadNoti
   upsellDefaultMessage: string;
   introEnabled: boolean;
   introPreview: string;
+  reminderEnabled: boolean;
+  depositEnabled: boolean;
+  depositCents: number | null;
+  pixKey: string | null;
+  voiceReplies: boolean;
+  publicBooking: boolean;
+  slug: string | null;
+  bookingUrl: string | null;
+  referralCode: string | null;
   slotMinutes: number;
   features: Record<string, boolean>;
   featureAccess: FeatureAccess;
@@ -182,6 +191,9 @@ export interface Appointment {
   notes: string | null;
   source: string;
   externalEventId?: string | null;
+  depositStatus?: string;
+  reminderSentAt?: string | null;
+  professionalId?: string | null;
   createdAt: string;
   patient: { id: string; name: string | null; phone: string } | null;
 }
@@ -357,4 +369,13 @@ export interface AdminJob {
   runAt: string;
   error: string | null;
   updatedAt: string;
+}
+
+export interface UnansweredQuestion {
+  id: string;
+  ids: string[];
+  question: string;
+  count: number;
+  people: number;
+  lastAskedAt: string;
 }

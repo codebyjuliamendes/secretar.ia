@@ -33,6 +33,9 @@ def appointment_view(a) -> dict:
         "notes": a.notes,
         "source": a.source,
         "externalEventId": a.externalEventId,
+        "depositStatus": getattr(a, "depositStatus", "") or "",
+        "reminderSentAt": a.reminderSentAt.isoformat() if getattr(a, "reminderSentAt", None) else None,
+        "professionalId": getattr(a, "professionalId", None),
         "createdAt": a.createdAt.isoformat(),
         "patient": {"id": a.patient.id, "name": a.patient.name, "phone": a.patient.phone} if a.patient else None,
     }
@@ -174,6 +177,12 @@ async def change_status(
         ip=ip,
     )
     await calendar_sync.schedule_sync(tenant_id, appt.id)
+    if new_status == "CANCELED":
+        from app.services import engagement
+
+        tenant = await db.tenant.find_unique(where={"id": tenant_id})
+        if tenant is not None:
+            await engagement.offer_freed_slot(tenant, updated)
     return appointment_view(updated)
 
 

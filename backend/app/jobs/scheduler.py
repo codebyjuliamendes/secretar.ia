@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.db import db
 from app.jobs.queue import enqueue
-from app.jobs.tasks import MONTHLY_REPORTS, UPSELL_CAMPAIGN
+from app.jobs.tasks import MONTHLY_REPORTS, SEND_REMINDERS, UPSELL_CAMPAIGN
 from app.logging import get_logger
 from app.security.ratelimit import purge_expired_buckets
 
@@ -43,6 +43,7 @@ async def run_daily_maintenance() -> dict:
     now = datetime.now(UTC)
     await enqueue(UPSELL_CAMPAIGN, {"tenantId": None})
     await enqueue(MONTHLY_REPORTS, {})  # só envia para quem ainda não recebeu o mês fechado
+    await enqueue(SEND_REMINDERS, {})  # lembretes de véspera + resumo semanal de perguntas sem resposta
     from app.config import get_settings
     from app.services.manual_billing import sweep_overdue
 

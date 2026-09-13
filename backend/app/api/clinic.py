@@ -62,6 +62,13 @@ class SettingsUpdateIn(BaseModel):
     upsellMessage: str | None = Field(default=None, max_length=1000)
     upsellDays: int | None = Field(default=None, ge=7, le=730)
     introEnabled: bool | None = None
+    reminderEnabled: bool | None = None
+    depositEnabled: bool | None = None
+    depositCents: int | None = Field(default=None, ge=0, le=100_000_000)
+    pixKey: str | None = Field(default=None, max_length=140)
+    voiceReplies: bool | None = None
+    publicBooking: bool | None = None
+    slug: str | None = Field(default=None, min_length=3, max_length=60, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     # `features` (Json do tenant) não é editável pela clínica: recursos vêm do plano (ADR-013).
 
 
@@ -530,6 +537,27 @@ async def put_rules(
         )
         slot = data.slotMinutes
     return {"rules": rules, "slotMinutes": slot}
+
+
+class QuestionsResolveIn(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@router.get("/questions")
+async def list_questions(ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_VIEW))):
+    """Perguntas que a assistente não soube responder (últimos 30 dias), agrupadas."""
+    from app.services import engagement
+
+    return {"items": await engagement.list_unanswered(ctx.tenant_id)}
+
+
+@router.post("/questions/resolve")
+async def resolve_questions(
+    data: QuestionsResolveIn, ctx: TenantContext = Depends(require_permission(Permission.SETTINGS_MANAGE))
+):
+    from app.services import engagement
+
+    return {"resolved": await engagement.resolve_unanswered(ctx.tenant_id, data.ids)}
 
 
 @router.get("/export/patients.csv")

@@ -15,9 +15,9 @@ from app.domain.plans import feature_enabled, limits_for, within_limit
 from app.jobs.queue import enqueue
 from app.jobs.tasks import SEND_WHATSAPP
 from app.logging import get_logger, tenant_id_var
-from app.services import calendar_sync, knowledge, notifications, quota_alerts, scheduling
+from app.services import calendar_sync, engagement, knowledge, notifications, quota_alerts, scheduling
 from app.services import media as media_service
-from app.services.ai import AIDecision, AIService
+from app.services.ai import UNKNOWN_INFO_REPLY, AIDecision, AIService
 from app.services.tenants import is_tenant_operational
 from app.services.usage import AI_MESSAGES, ai_quota_available, increment
 from generated_prisma.errors import UniqueViolationError
@@ -154,6 +154,7 @@ async def _apply_actions(
                 else "Vou pedir para a equipe te retornar com opções."
             )
             decision.extra["availability"] = reason
+            await engagement.waitlist_add(tenant, patient, decision.appointment_datetime, decision.appointment_service)
             log.info("ai_slot_unavailable", reason=reason)
             return
         async with db.tx() as tx:
@@ -178,11 +179,16 @@ async def _apply_actions(
                     "source": "AI",
                 }
             )
+        deposit = engagement.deposit_text(tenant)
+        if deposit:
+            await db.appointment.update(where={"id": appt.id}, data={"depositStatus": "REQUESTED"})
+            decision.reply = f"{decision.reply}\n\n{deposit}"
         await notifications.notify(
             tenant.id,
             type_="APPOINTMENT_REQUESTED",
             title=f"Novo pedido de agendamento: {name}",
-            body=f"{appt.service} em {_local(appt.date, tz)} (aguardando confirmação).",
+            body=f"{appt.service} em {_local(appt.date, tz)} (aguardando confirmação"
+            + ("; sinal por Pix solicitado)." if deposit else ")."),
             phone=phone,
         )
         await calendar_sync.schedule_sync(tenant.id, appt.id)
@@ -202,8 +208,9 @@ async def _apply_actions(
                 dedupe_minutes=30,
             )
             return
-        await db.appointment.update(where={"id": target["id"]}, data={"status": "CANCELED"})
+        canceled = await db.appointment.update(where={"id": target["id"]}, data={"status": "CANCELED"})
         await calendar_sync.schedule_sync(tenant.id, target["id"])
+        await engagement.offer_freed_slot(tenant, canceled)
         await notifications.notify(
             tenant.id,
             type_="APPOINTMENT_CANCELED",
@@ -373,6 +380,15 @@ async def _process(
         log.info("inbound_marketing_opt_out", source=source)
         return InboundResult(status="processed", intent=Intent.INFO.value, reply=OPT_OUT_REPLY, degraded=False)
 
+    handled = await engagement.handle_reminder_reply(tenant, patient, text)
+    if handled:
+        # Resposta ao lembrete de véspera (SIM/NÃO): confirma ou cancela por regra, sem gastar IA.
+        intent_value, reply = handled
+        await _save_exchange(tenant.id, phone, text, reply)
+        await enqueue(SEND_WHATSAPP, {"tenantId": tenant.id, "phone": phone, "text": reply})
+        log.info("inbound_reminder_reply", intent=intent_value)
+        return InboundResult(status="processed", intent=intent_value, reply=reply, degraded=False)
+
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
     history = await _history(tenant.id, phone)
     upcoming = await _upcoming(tenant.id, patient.id, tz)
@@ -396,6 +412,9 @@ async def _process(
         decision.extra["knowledge"] = [s.title for s in snippets]
 
     await _apply_actions(tenant, patient, decision, phone, text, upcoming, services)
+    if decision.reply.startswith(UNKNOWN_INFO_REPLY[:40]) or (decision.needs_human and decision.intent == Intent.INFO):
+        # A assistente não soube: vira sugestão de melhoria da base (ideia 7), sem travar a resposta.
+        await engagement.record_unanswered(tenant.id, phone, text)
 
     await _save_exchange(tenant.id, phone, text, decision.reply)
     await db.executionlog.create(

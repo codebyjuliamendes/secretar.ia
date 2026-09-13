@@ -53,6 +53,13 @@ async def ready():
     )
 
 
+@cron_router.post("/reminders", dependencies=[Depends(require_cron_secret)])
+async def cron_reminders():
+    from app.services.engagement import send_reminders
+
+    return {"sent": await send_reminders()}
+
+
 @cron_router.post("/monthly-reports", dependencies=[Depends(require_cron_secret)])
 async def cron_monthly_reports(settings: Settings = Depends(get_settings_dep)):
     from app.services.reports import send_monthly_reports

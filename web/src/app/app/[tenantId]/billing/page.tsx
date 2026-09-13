@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, ErrorState, LinkButton, PageHeader, Skeleton, cx } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { CYCLE_LABEL, PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
+import { PAYMENT_LABEL, PLAN_LABEL, STATUS_LABEL, STATUS_TONE, brl, formatDate, limitLabel, salesLink } from "@/lib/format";
 import type { Billing, Plan } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 import { useTenant } from "../layout";

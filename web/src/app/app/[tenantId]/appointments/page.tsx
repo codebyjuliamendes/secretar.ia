@@ -93,7 +93,7 @@ function AppointmentsInner() {
                   <Td className="whitespace-nowrap">{formatDateTime(a.date)}</Td>
                   <Td>{a.durationMin} min</Td>
                   <Td>{a.priceCents != null ? brl(a.priceCents) : "—"}</Td>
-                  <Td><Badge tone={APPT_TONE[a.status]}>{APPT_LABEL[a.status]}</Badge></Td>
+                  <Td><span className="flex flex-wrap gap-1"><Badge tone={APPT_TONE[a.status]}>{APPT_LABEL[a.status]}</Badge>{a.depositStatus === "REQUESTED" && <Badge tone="warning">sinal pedido</Badge>}{a.reminderSentAt && a.status !== "CANCELED" && <Badge tone="neutral">lembrado</Badge>}</span></Td>
                   <Td className="text-right">
                     <div className="flex justify-end gap-1">
                       {NEXT[a.status].map((n) => (

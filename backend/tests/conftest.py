@@ -35,6 +35,9 @@ get_settings.cache_clear()
 
 TABLES = [
     "TeamInvite",
+    "WaitlistEntry",
+    "UnansweredQuestion",
+    "Professional",
     "RateLimitBucket",
     "ExternalBusy",
     "CalendarConnection",

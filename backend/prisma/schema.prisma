@@ -138,69 +138,84 @@ model VerificationToken {
 // -------------------------------------------------------------
 
 model Tenant {
-  id                String       @id @default(cuid())
-  name              String
-  whatsapp          String       @unique
-  whatsappInstance  String?      @unique
-  whatsappConnected Boolean      @default(false)
-  prompt            String       @default("") // instruções extras opcionais; a persona é gerada pelo tom
-  tone              String       @default("acolhedor") // acolhedor | objetivo | formal
-  niche             String       @default("clinica") // chave em domain/niches.py; escolhido pelo admin ao liberar
-  introEnabled    Boolean      @default(true) // assistente se apresenta no primeiro contato de cada pessoa
-  hardLimit       Boolean      @default(false) // admin: cortar a IA ao estourar a cota (padrão: avisa e segue)
-  paidUntil       DateTime? // cobrança fora do Stripe (Pix/boleto): pago até; vencido → PAST_DUE
-  billingCycle    String       @default("MONTHLY") // MONTHLY | ANNUAL (anual = 11 mensalidades)
-  paymentMethod   String       @default("") // "", PIX, BOLETO, STRIPE, OUTRO
-  billingNote     String? // observação do admin sobre a cobrança
-  welcomeSentAt   DateTime? // admin enviou as boas-vindas
-  lastReportPeriod String? // último relatório mensal enviado (YYYY-MM)
-  prices            String?
-  businessHours     String?
-  timezone          String       @default("America/Sao_Paulo")
-  status            TenantStatus @default(PENDING) // nasce aguardando liberação do plano pela equipe
-  plan              Plan         @default(BASIC)
-  subscriptionId    String?      @unique
-  customerId        String?
-  upsellEnabled     Boolean      @default(false)
-  upsellMessage     String?
-  upsellDays        Int          @default(150)
-  slotMinutes       Int          @default(30)
-  features          Json         @default("{}")
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                    String       @id @default(cuid())
+  name                  String
+  whatsapp              String       @unique
+  whatsappInstance      String?      @unique
+  whatsappConnected     Boolean      @default(false)
+  prompt                String       @default("") // instruções extras opcionais; a persona é gerada pelo tom
+  tone                  String       @default("acolhedor") // acolhedor | objetivo | formal
+  niche                 String       @default("clinica") // chave em domain/niches.py; escolhido pelo admin ao liberar
+  introEnabled          Boolean      @default(true) // assistente se apresenta no primeiro contato de cada pessoa
+  hardLimit             Boolean      @default(false) // admin: cortar a IA ao estourar a cota (padrão: avisa e segue)
+  paidUntil             DateTime? // cobrança fora do Stripe (Pix/boleto): pago até; vencido → PAST_DUE
+  billingCycle          String       @default("MONTHLY") // MONTHLY | ANNUAL (anual = 11 mensalidades)
+  slug                  String?      @unique // link público de agendamento: /agendar/{slug}
+  publicBooking         Boolean      @default(true) // página pública de agendamento ligada
+  referralCode          String?      @unique // código que o cliente compartilha ("indique e ganhe")
+  referredById          String? // tenant que indicou esta conta
+  depositEnabled        Boolean      @default(false) // sinal por Pix para reservar horário
+  depositCents          Int?
+  pixKey                String?
+  voiceReplies          Boolean      @default(false) // responder áudio com áudio (experimental)
+  reminderEnabled       Boolean      @default(true) // lembrete de véspera com confirmação por resposta
+  parentTenantId        String? // grupo de unidades: conta principal
+  lastQuestionsDigestAt DateTime? // último resumo de "perguntas sem resposta" enviado
+  paymentMethod         String       @default("") // "", PIX, BOLETO, STRIPE, OUTRO
+  billingNote           String? // observação do admin sobre a cobrança
+  welcomeSentAt         DateTime? // admin enviou as boas-vindas
+  lastReportPeriod      String? // último relatório mensal enviado (YYYY-MM)
+  prices                String?
+  businessHours         String?
+  timezone              String       @default("America/Sao_Paulo")
+  status                TenantStatus @default(PENDING) // nasce aguardando liberação do plano pela equipe
+  plan                  Plan         @default(BASIC)
+  subscriptionId        String?      @unique
+  customerId            String?
+  upsellEnabled         Boolean      @default(false)
+  upsellMessage         String?
+  upsellDays            Int          @default(150)
+  slotMinutes           Int          @default(30)
+  features              Json         @default("{}")
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
-  services          Service[]
-  availabilityRules AvailabilityRule[]
-  memberships       Membership[]
-  patients          Patient[]
-  appointments      Appointment[]
-  messages          Message[]
-  processedMessages ProcessedMessage[]
-  executionLogs     ExecutionLog[]
-  notifications     Notification[]
-  auditLogs         AuditLog[]
-  usageCounters     UsageCounter[]
-  upsellDispatches  UpsellDispatch[]
-  calendarConnection CalendarConnection?
-  teamInvites        TeamInvite[]
-  externalBusy       ExternalBusy[]
-  knowledgeDocuments KnowledgeDocument[]
-  knowledgeChunks    KnowledgeChunk[]
+  services            Service[]
+  availabilityRules   AvailabilityRule[]
+  memberships         Membership[]
+  patients            Patient[]
+  appointments        Appointment[]
+  messages            Message[]
+  processedMessages   ProcessedMessage[]
+  executionLogs       ExecutionLog[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  usageCounters       UsageCounter[]
+  upsellDispatches    UpsellDispatch[]
+  calendarConnection  CalendarConnection?
+  teamInvites         TeamInvite[]
+  externalBusy        ExternalBusy[]
+  knowledgeDocuments  KnowledgeDocument[]
+  knowledgeChunks     KnowledgeChunk[]
+  professionals       Professional[]
+  waitlist            WaitlistEntry[]
+  unansweredQuestions UnansweredQuestion[]
 }
 
 model Patient {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  phone     String
-  name      String?
-  notes     String?
-  marketingOptOut Boolean @default(false) // pediu para não receber convites de retorno (LGPD)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phone           String
+  name            String?
+  notes           String?
+  marketingOptOut Boolean  @default(false) // pediu para não receber convites de retorno (LGPD)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   appointments     Appointment[]
   upsellDispatches UpsellDispatch[]
+  waitlist         WaitlistEntry[]
 
   @@unique([tenantId, phone])
   @@index([tenantId, createdAt])
@@ -239,24 +254,28 @@ model AvailabilityRule {
 }
 
 model Appointment {
-  id          String            @id @default(cuid())
-  tenantId    String
-  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  patientId   String
-  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  serviceId   String?
-  serviceRef  Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  service     String
-  date        DateTime
-  durationMin Int               @default(60)
-  endAt       DateTime?
-  status      AppointmentStatus @default(PENDING)
-  priceCents Int?
-  notes      String?
-  source     String            @default("AI")
-  externalEventId String?     // id do evento no calendário externo (Google)
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  id              String            @id @default(cuid())
+  tenantId        String
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId       String
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  serviceId       String?
+  serviceRef      Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service         String
+  date            DateTime
+  durationMin     Int               @default(60)
+  endAt           DateTime?
+  status          AppointmentStatus @default(PENDING)
+  priceCents      Int?
+  notes           String?
+  source          String            @default("AI")
+  externalEventId String? // id do evento no calendário externo (Google)
+  professionalId  String?
+  professional    Professional?     @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  reminderSentAt  DateTime? // lembrete de véspera enviado
+  depositStatus   String            @default("") // "" | REQUESTED | PAID
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   upsellDispatches UpsellDispatch[]
 
@@ -265,6 +284,48 @@ model Appointment {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([date, status])
+}
+
+model Professional {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  appointments Appointment[]
+
+  @@unique([tenantId, name])
+}
+
+// Quem pediu um dia/horário que não estava livre: ao abrir vaga, é avisado primeiro.
+model WaitlistEntry {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId  String
+  patient    Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  desiredDay DateTime // meia-noite UTC do dia local desejado
+  service    String?
+  createdAt  DateTime  @default(now())
+  notifiedAt DateTime?
+
+  @@index([tenantId, desiredDay, notifiedAt])
+}
+
+// Perguntas que a assistente não soube responder: viram sugestões para a base de conhecimento.
+model UnansweredQuestion {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phone      String
+  question   String
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([tenantId, resolvedAt, createdAt])
 }
 
 // -------------------------------------------------------------
@@ -388,7 +449,7 @@ model KnowledgeDocument {
   chunkCount     Int      @default(0)
   embeddingModel String?
   source         String   @default("text") // text (colado) | pdf | url | file (.txt/.md enviado)
-  sourceRef      String?  // nome do arquivo ou URL de origem
+  sourceRef      String? // nome do arquivo ou URL de origem
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -398,11 +459,11 @@ model KnowledgeDocument {
 }
 
 model KnowledgeChunk {
-  id         String                  @id @default(cuid())
+  id         String                      @id @default(cuid())
   tenantId   String
-  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   documentId String
-  document   KnowledgeDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document   KnowledgeDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
   position   Int
   content    String
   embedding  Unsupported("vector(768)")?
