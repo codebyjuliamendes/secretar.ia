@@ -17,6 +17,9 @@ uma tarde. O que exige cartão ou conta em terceiro está marcado com **[contrat
 O WhatsApp roda no próprio servidor pela Evolution API, que já vem no compose de produção. Ela precisa ficar
 ligada sem parar, porque mantém a sessão do QR Code viva.
 
+A imagem usada é `evoapicloud/evolution-api:v2.3.7`, a mesma testada no ambiente local. O banco dela fica no
+mesmo Postgres, em um schema separado, e guarda só a sessão do número: as conversas ficam no nosso banco.
+
 ## 2. Apontar os domínios
 
 Crie três registros A apontando para o IP do servidor:
@@ -140,5 +143,6 @@ As migrations aplicam no start. Para janelas com mudança grande de banco, faça
 | Backend não sobe | `docker compose logs backend`: em produção ele recusa iniciar sem `JWT_SECRET`, `WHATSAPP_APP_SECRET` e `CRON_SECRET`, e exige https em `PUBLIC_API_URL` e `FRONTEND_URL` |
 | Assistente não responde | conta liberada? WhatsApp conectado? veja Fila de tarefas no admin e `docker compose logs backend` |
 | QR Code não aparece | `docker compose logs evolution`; confira `EVOLUTION_API_KEY` igual nos dois arquivos |
+| Evolution reclama do banco | o banco dela é criado na primeira subida do Postgres; em um volume que já existia, rode `docker compose -f docker-compose.prod.yml exec postgres psql -U $POSTGRES_USER -c "CREATE DATABASE evolution"` |
 | E-mail no spam | falta SPF e DKIM no domínio do `SMTP_FROM` |
 | Certificado não sai | DNS ainda propagando, ou as portas 80 e 443 estão ocupadas |

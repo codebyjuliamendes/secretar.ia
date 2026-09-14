@@ -12,6 +12,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups # destino do pg_dump (deploy/backup.sh)
+      # Cria o banco da Evolution na primeira inicialização (só roda com o volume vazio).
+      - ./deploy/init-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-secretaria}"]
       interval: 10s
@@ -49,10 +51,9 @@ services:
     expose: ["4000"]
 
   # Conexão com o WhatsApp. Mantém a sessão do QR Code viva: precisa ficar ligado sem parar.
-  # Confira a tag atual em github.com/EvolutionAPI/evolution-api/releases e as variáveis na documentação
-  # oficial antes de subir; elas mudam entre versões maiores.
+  # Imagem oficial (o projeto saiu de "atendai" para "evoapicloud"). Versão testada aqui: 2.3.7.
   evolution:
-    image: atendai/evolution-api:v2.1.1
+    image: evoapicloud/evolution-api:v2.3.7
     restart: unless-stopped
     depends_on:
       postgres:
@@ -64,6 +65,11 @@ services:
       DATABASE_PROVIDER: postgresql
       DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
       DATABASE_SAVE_DATA_INSTANCE: "true"
+      # O histórico de conversas é nosso; a Evolution só precisa guardar a sessão do número.
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
       CACHE_REDIS_ENABLED: "false"
       CACHE_LOCAL_ENABLED: "true"
       DEL_INSTANCE: "false"
