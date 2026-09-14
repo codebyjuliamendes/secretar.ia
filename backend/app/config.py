@@ -35,9 +35,12 @@ class Settings(BaseSettings):
     evolution_webhook_token: str = ""
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # Medido em 14/set/2026 com chave nova: o lite responde em ~1s e os modelos maiores levavam 12s a 20s,
+    # com erros de sobrecarga. Em conversa de WhatsApp, velocidade vale mais que sofisticação.
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"  # responder áudio com áudio (experimental)
+    tts_timeout_seconds: float = 60.0  # voz é mais lenta que texto e roda em segundo plano; não prende ninguém
     tts_voice: str = "Kore"  # voz fixa por plataforma; simples e previsível
 
     # Identificação da operadora nas páginas de Privacidade e Termos. Vazio = a página omite a linha.

@@ -23,7 +23,7 @@ def tts_client(settings: Settings) -> GeminiClient | None:
     """Fábrica isolada (testes injetam um cliente falso)."""
     if not settings.gemini_api_key:
         return None
-    return GeminiClient(settings.gemini_api_key, settings.gemini_tts_model, settings.ai_timeout_seconds, 512)
+    return GeminiClient(settings.gemini_api_key, settings.gemini_tts_model, settings.tts_timeout_seconds, 512)
 
 
 def pcm_to_wav(pcm: bytes, *, rate: int = 24_000, channels: int = 1, sample_width: int = 2) -> bytes:
