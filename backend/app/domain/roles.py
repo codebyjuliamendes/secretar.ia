@@ -3,7 +3,7 @@
 Papéis por tenant:
   OWNER   - dono da clínica: tudo, inclusive billing, equipe e exclusão.
   MANAGER - gerente: configura IA/integrações, gerencia agenda/pacientes e vê relatórios.
-  STAFF   - recepção: opera agenda, pacientes e inbox; não altera configurações.
+  STAFF   - recepção: opera agenda, pacientes e inbox; não altera configurações nem exporta a base.
 
 Papel de plataforma:
   SUPER_ADMIN - operador da Secretar.ia: administra tenants e planos. Não é membro automático
@@ -37,6 +37,9 @@ class Permission(StrEnum):
     BILLING_VIEW = "billing:view"
     BILLING_MANAGE = "billing:manage"
     AUDIT_VIEW = "audit:view"
+    # Exportação em massa (planilha de contatos/agenda): dado pessoal de saúde em lote, fora do controle de acesso
+    # do painel depois de baixado. Recepção consulta e opera fichas, mas não baixa a base inteira (LGPD).
+    DATA_EXPORT = "data:export"
 
 
 _STAFF: frozenset[Permission] = frozenset(
@@ -58,6 +61,7 @@ _MANAGER: frozenset[Permission] = _STAFF | frozenset(
         Permission.TEAM_VIEW,
         Permission.BILLING_VIEW,
         Permission.AUDIT_VIEW,
+        Permission.DATA_EXPORT,
     }
 )
 _OWNER: frozenset[Permission] = _MANAGER | frozenset({Permission.TEAM_MANAGE, Permission.BILLING_MANAGE})
