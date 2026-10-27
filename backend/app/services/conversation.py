@@ -49,7 +49,13 @@ DELETION_PHRASES = (
     "remova meus dados",
     "quero ser esquecido",
     "direito ao esquecimento",
-    "lgpd",
+    "apagar meu cadastro",
+    "apague meu cadastro",
+    "excluir meu cadastro",
+    "exclua meu cadastro",
+    "remover meu cadastro",
+    "remova meu cadastro",
+    # "lgpd" sozinho NÃO entra: "vocês seguem a LGPD?" é dúvida, não pedido de exclusão.
 )
 
 DELETION_REPLY = (

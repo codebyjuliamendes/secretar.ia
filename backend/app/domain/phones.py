@@ -16,3 +16,11 @@ def normalize_phone(raw: str, default_country: str = "55") -> str:
     if len(digits) < 10 or len(digits) > 15:
         raise ValueError("Telefone inválido")
     return digits
+
+
+def mask_phone(phone: str | None) -> str:
+    """Telefone mascarado para trilhas que sobrevivem à exclusão do titular (ex.: auditoria): só os 4 finais."""
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) <= 4:
+        return "*" * len(digits)
+    return "*" * (len(digits) - 4) + digits[-4:]
