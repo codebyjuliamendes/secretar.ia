@@ -24,6 +24,7 @@ log = get_logger("jobs.scheduler")
 LOCK_KEY_DAILY = 7_401_001
 LOCK_KEY_PULL = 7_401_002
 DAILY_HOUR_UTC = 12  # 09:00 America/Sao_Paulo
+EXECUTION_LOG_TEXT_DAYS = 30
 
 
 @asynccontextmanager
@@ -65,6 +66,13 @@ async def run_daily_maintenance() -> dict:
         where={"status": {"in": ["COMPLETED"]}, "updatedAt": {"lt": now - timedelta(days=7)}}
     )
     removed_buckets = await purge_expired_buckets()
+    # Minimização (LGPD, e o que a Política de Privacidade promete): o texto das mensagens no log técnico da IA
+    # some após 30 dias; contagens, intenção, tokens e tempo ficam para o painel e os relatórios.
+    redacted_logs = await db.execute_raw(
+        """UPDATE "ExecutionLog" SET input = '', output = NULL
+           WHERE "createdAt" < $1::timestamp AND (input <> '' OR output IS NOT NULL)""",
+        (now - timedelta(days=EXECUTION_LOG_TEXT_DAYS)).replace(tzinfo=None).isoformat(sep=" "),
+    )
     from app.services.calendar_sync import purge_past_external_busy
 
     removed_external = await purge_past_external_busy(now)
@@ -75,6 +83,7 @@ async def run_daily_maintenance() -> dict:
         "refreshTokensRemoved": removed_tokens,
         "verificationTokensRemoved": removed_verif,
         "jobsRemoved": removed_jobs,
+        "executionLogsRedacted": redacted_logs,
         "tenantsOverdue": overdue,
     }
     log.info("daily_maintenance_done", **result)

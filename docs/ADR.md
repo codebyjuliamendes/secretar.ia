@@ -411,3 +411,26 @@ testado para subir o sistema.
 tag da Evolution API confirmada na documentação dela antes de subir. A exclusão definitiva é irreversível por
 desenho: a confirmação por nome é a única trava, e é deliberado que só o super admin possa executá-la.
 
+## ADR-022 — Endurecimento para produção: exclusão completa do titular, exportação restrita e locks do agendador
+
+**Contexto.** Revisão de produção (out/2026) encontrou lacunas entre o que o produto promete e o que o código
+fazia: o botão Remover em Contatos apagava a ficha, mas as conversas (ligadas por telefone, sem FK), os avisos da
+inbox, as perguntas sem resposta e as mensagens na fila ficavam; a planilha exportada executava fórmulas vindas do
+nome do perfil do WhatsApp; qualquer papel baixava a base inteira; o agendador usava advisory lock de sessão
+através do pool do Prisma; e o log técnico da IA guardava o texto das mensagens para sempre, embora a Política
+diga trinta dias.
+**Decisões.**
+1. **Exclusão do titular numa transação** (`services/patients.erase_patient_data`): ficha, `Message`,
+   `UnansweredQuestion`, `Notification` e `Job` não iniciados daquele telefone na clínica. A auditoria guarda só o
+   telefone mascarado e as contagens. A exclusão definitiva da conta também limpa a fila do tenant.
+2. **`data:export` só para OWNER e MANAGER**, com auditoria de cada download; células com prefixo de fórmula
+   recebem apóstrofo (números como telefone ficam intactos).
+3. **Locks de transação no agendador** (`pg_try_advisory_xact_lock` dentro de `db.tx`), que se soltam sozinhos ao
+   fim do bloco. A rotina diária passa a valer a partir das 12:00 UTC (não só durante essa hora), protegida pelo
+   carimbo do dia.
+4. **Minimização do `ExecutionLog`**: texto de entrada e saída apagado após 30 dias, métricas preservadas.
+5. **Entrada limitada**: teto de corpo também para `chunked`, `X-Request-Id` validado, rate limit nas rotas de
+   token e na troca de senha, horizonte máximo na página pública de agendamento, chave do Gemini no cabeçalho.
+**Consequências.** STAFF deixa de ver o botão Exportar planilha (mudança de comportamento comunicada no PR).
+Pedido de exclusão por "lgpd" solto deixou de contar (era falso positivo para quem só perguntava sobre a lei).
+

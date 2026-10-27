@@ -250,3 +250,24 @@ async def test_change_password_attempts_are_capped_per_user(client, clean_db):
         )
         codes.append(r.status_code)
     assert codes[0] == 400 and codes[-1] == 429
+
+
+async def test_daily_maintenance_redacts_old_ai_log_text_but_keeps_metrics(client, clean_db):
+    from app.jobs.scheduler import run_daily_maintenance
+
+    reg = await register_user(client)
+    tid = reg["tenantId"]
+    old = await clean_db.executionlog.create(
+        data={"tenantId": tid, "agent": "secretaria", "intent": "INFO", "input": "meu exame deu X", "output": "ok"}
+    )
+    await clean_db.execute_raw(
+        """UPDATE "ExecutionLog" SET "createdAt" = NOW() - INTERVAL '31 days' WHERE id = $1""", old.id
+    )
+    recent = await clean_db.executionlog.create(
+        data={"tenantId": tid, "agent": "secretaria", "intent": "INFO", "input": "bom dia", "output": "olá"}
+    )
+    result = await run_daily_maintenance()
+    assert result["executionLogsRedacted"] == 1
+    old_row = await clean_db.executionlog.find_unique(where={"id": old.id})
+    assert old_row.input == "" and old_row.output is None and old_row.intent == "INFO"
+    assert (await clean_db.executionlog.find_unique(where={"id": recent.id})).input == "bom dia"
