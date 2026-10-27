@@ -1,12 +1,16 @@
 """Agendador leve em processo (substitui dependência de cron externo).
 
 Usa advisory lock do PostgreSQL para que apenas uma réplica dispare cada rotina (diária e leitura periódica
-do Google Calendar). Os endpoints /api/internal/cron/* continuam disponíveis para orquestradores externos.
+do Google Calendar). O lock é de TRANSAÇÃO (`pg_try_advisory_xact_lock`): o Prisma usa um pool de conexões, e um
+lock de sessão pego numa conexão e "solto" em outra ficaria preso para sempre na primeira. Os endpoints
+/api/internal/cron/* continuam disponíveis para orquestradores externos.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 from app.db import db
@@ -22,13 +26,19 @@ LOCK_KEY_PULL = 7_401_002
 DAILY_HOUR_UTC = 12  # 09:00 America/Sao_Paulo
 
 
-async def _try_lock(key: int) -> bool:
-    rows = await db.query_raw("SELECT pg_try_advisory_lock($1) AS locked", key)
-    return bool(rows and rows[0].get("locked"))
+@asynccontextmanager
+async def exclusive(key: int, *, hold_seconds: int) -> AsyncIterator[bool]:
+    """Entrega True se esta réplica ganhou o lock `key`. O lock vive na transação aberta aqui (uma conexão fixa)
+    e é liberado no fim do bloco, inclusive se o processo morrer (o Postgres encerra a transação)."""
+    async with db.tx(max_wait=timedelta(seconds=10), timeout=timedelta(seconds=hold_seconds)) as tx:
+        rows = await tx.query_raw("SELECT pg_try_advisory_xact_lock($1) AS locked", key)
+        yield bool(rows and rows[0].get("locked"))
 
 
-async def _unlock(key: int) -> None:
-    await db.query_raw("SELECT pg_advisory_unlock($1)", key)
+def daily_due(now: datetime, last_run_day: str | None) -> bool:
+    """A rotina diária vence a partir de DAILY_HOUR_UTC. `>=` e não `==`: um deploy ou queda durante essa hora
+    não pode fazer o dia inteiro passar sem lembretes nem limpeza (o carimbo do dia evita repetir)."""
+    return now.hour >= DAILY_HOUR_UTC and last_run_day != now.date().isoformat()
 
 
 async def daily_already_ran_today(now: datetime | None = None) -> bool:
@@ -87,22 +97,17 @@ async def scheduler_loop(stop: asyncio.Event) -> None:
         try:
             now = datetime.now(UTC)
             today = now.date().isoformat()
-            if now.hour == DAILY_HOUR_UTC and last_run_day != today:
-                if await _try_lock(LOCK_KEY_DAILY):
-                    try:
-                        if not await daily_already_ran_today(now):
-                            await run_daily_maintenance()
-                    finally:
-                        await _unlock(LOCK_KEY_DAILY)
+            if daily_due(now, last_run_day):
+                async with exclusive(LOCK_KEY_DAILY, hold_seconds=600) as won:
+                    if won and not await daily_already_ran_today(now):
+                        await run_daily_maintenance()
                 last_run_day = today
             if last_pull is None or now - last_pull >= timedelta(minutes=PULL_INTERVAL_MINUTES):
-                if await _try_lock(LOCK_KEY_PULL):
-                    try:
+                async with exclusive(LOCK_KEY_PULL, hold_seconds=300) as won:
+                    if won:
                         queued = await run_calendar_pulls()
                         if queued:
                             log.info("calendar_pulls_scheduled", queued=queued)
-                    finally:
-                        await _unlock(LOCK_KEY_PULL)
                 last_pull = now
         except Exception as exc:  # noqa: BLE001
             log.error("scheduler_error", error=str(exc), exc_info=exc)
