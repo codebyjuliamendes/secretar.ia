@@ -14,6 +14,7 @@ import {
   setSessionCookies,
   type TokenPair,
 } from "@/lib/server/session";
+import { resolveProxyPath } from "@/lib/server/proxy-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ function crossOrigin(req: NextRequest) {
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
-async function forward(req: NextRequest, path: string, accessToken: string | undefined, body: ArrayBuffer | null) {
+async function forward(req: NextRequest, encodedPath: string, accessToken: string | undefined, body: ArrayBuffer | null) {
   const headers = new Headers();
   for (const h of FORWARD_HEADERS) {
     const v = req.headers.get(h);
@@ -74,7 +75,7 @@ async function forward(req: NextRequest, path: string, accessToken: string | und
     headers.set("x-real-ip", ip);
   }
   if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
-  const url = `${API_URL}/api/${path.split("/").map(encodeURIComponent).join("/")}${req.nextUrl.search}`;
+  const url = `${API_URL}/api/${encodedPath}${req.nextUrl.search}`;
   const init: RequestInit = { method: req.method, headers, cache: "no-store", redirect: "manual" };
   if (body && body.byteLength > 0 && req.method !== "GET" && req.method !== "HEAD") init.body = body;
   return fetch(url, init);
@@ -86,15 +87,13 @@ function errorResponse(status: number, code: string, message: string) {
 
 async function handle(req: NextRequest, ctx: Ctx) {
   const { path: segments } = await ctx.params;
-  // Segmentos chegam decodificados: "%2e%2e" vira ".." e "%2f" vira "/". Sem esta checagem, um caminho como
-  // clinic/../webhooks/... passaria pelo bloqueio abaixo e seria normalizado pelo fetch para outra rota.
-  if (segments.some((s) => s === "." || s === ".." || s.includes("/") || s.includes("\\"))) {
-    return errorResponse(400, "invalid_path", "Caminho inválido.");
+  const resolved = resolveProxyPath(segments);
+  if (!resolved.ok) {
+    return resolved.status === 400
+      ? errorResponse(400, "invalid_path", "Caminho inválido.")
+      : errorResponse(404, "not_found", "Rota indisponível.");
   }
-  const path = segments.join("/");
-  if (path.startsWith("webhooks/") || path.startsWith("internal/") || path === "integrations/google/notify") {
-    return errorResponse(404, "not_found", "Rota indisponível.");
-  }
+  const { path, encoded } = resolved;
   if (crossOrigin(req)) {
     return errorResponse(403, "cross_origin", "Requisição de outra origem recusada.");
   }
@@ -130,7 +129,7 @@ async function handle(req: NextRequest, ctx: Ctx) {
 
   let upstream: Response;
   try {
-    upstream = await forward(req, path, accessToken, body);
+    upstream = await forward(req, encoded, accessToken, body);
     if (upstream.status === 401 && refreshToken && !AUTH_TOKEN_PATHS.has(path)) {
       const outcome = await refreshOnce(refreshToken, req.headers.get("user-agent"));
       if (outcome === null) {
@@ -140,7 +139,7 @@ async function handle(req: NextRequest, ctx: Ctx) {
       if (outcome !== "invalid") {
         renewed = outcome;
         accessToken = renewed.accessToken;
-        upstream = await forward(req, path, accessToken, body);
+        upstream = await forward(req, encoded, accessToken, body);
       }
     }
   } catch {

@@ -11,7 +11,8 @@
     "start": "next start -p ${PORT:-4000}",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm run build"
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "test": "node --test --experimental-strip-types --no-warnings=ExperimentalWarning \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "next": "16.4.2",
