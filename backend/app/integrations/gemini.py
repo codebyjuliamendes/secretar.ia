@@ -29,7 +29,8 @@ class AIResult:
 
 class GeminiClient:
     def __init__(self, api_key: str, model: str, timeout: float, max_output_tokens: int):
-        self._key = api_key
+        # Chave no cabeçalho, não na query string: URLs vão parar em logs de proxy e em mensagens de erro.
+        self._headers = {"x-goog-api-key": api_key}
         self.model = model
         self._timeout = timeout
         self._max_tokens = max_output_tokens
@@ -90,7 +91,7 @@ class GeminiClient:
         url = f"{_BASE}/{self.model}:generateContent"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(url, params={"key": self._key}, json=body)
+                resp = await client.post(url, headers=self._headers, json=body)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise AIProviderError(f"Gemini TTS indisponível: {exc.__class__.__name__}") from exc
         if resp.status_code != 200:
@@ -120,7 +121,7 @@ class GeminiClient:
         url = f"{_BASE}/{model}:batchEmbedContents"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(url, params={"key": self._key}, json=body)
+                resp = await client.post(url, headers=self._headers, json=body)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise AIProviderError(f"Gemini indisponível: {exc.__class__.__name__}") from exc
         if resp.status_code != 200:
@@ -137,7 +138,7 @@ class GeminiClient:
         url = f"{_BASE}/{self.model}:generateContent"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(url, params={"key": self._key}, json=body)
+                resp = await client.post(url, headers=self._headers, json=body)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise AIProviderError(f"Gemini indisponível: {exc.__class__.__name__}") from exc
         if resp.status_code != 200:

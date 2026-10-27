@@ -20,11 +20,24 @@ _login_email_limiter = PostgresRateLimiter("auth.login.email", limit=30, window_
 _login_ip_limiter = PostgresRateLimiter("auth.login.ip", limit=100, window_seconds=60)
 _register_limiter = PostgresRateLimiter("auth.register", limit=20, window_seconds=3600)
 _forgot_limiter = PostgresRateLimiter("auth.forgot", limit=5, window_seconds=600)
+# Rotas que recebem tokens de uso único (reset, verificação, convite): tokens têm 384 bits, então o limite não é
+# contra adivinhação, e sim contra uso da rota como amplificador de CPU (bcrypt) e de escrita no banco.
+_token_limiter = PostgresRateLimiter("auth.token", limit=30, window_seconds=600)
+# Troca de senha com sessão roubada: sem teto, a senha atual seria testável à vontade.
+_change_password_limiter = PostgresRateLimiter("auth.change_password", limit=10, window_seconds=600)
 
 
 async def reset_rate_limiters() -> None:
     """Usado em testes para isolar cenários; sem efeito em produção."""
-    for limiter in (_login_limiter, _login_email_limiter, _login_ip_limiter, _register_limiter, _forgot_limiter):
+    for limiter in (
+        _login_limiter,
+        _login_email_limiter,
+        _login_ip_limiter,
+        _register_limiter,
+        _forgot_limiter,
+        _token_limiter,
+        _change_password_limiter,
+    ):
         await limiter.reset()
 
 
@@ -87,7 +100,8 @@ async def optional_user(
 
 
 @router.get("/invites/{token}")
-async def invite_details(token: str):
+async def invite_details(token: str, request: Request):
+    await _limit(_token_limiter, client_ip(request))
     return await team_service.invite_info(token)
 
 
@@ -99,6 +113,7 @@ async def accept_invite(
     settings: Settings = Depends(get_settings_dep),
     user_agent: str | None = Header(default=None),
 ):
+    await _limit(_token_limiter, client_ip(request))
     return await team_service.accept_invite(
         settings,
         token=data.token,
@@ -180,7 +195,8 @@ async def me(user: CurrentUser = Depends(current_user)):
 
 
 @router.post("/verify-email")
-async def verify_email(data: TokenIn):
+async def verify_email(data: TokenIn, request: Request):
+    await _limit(_token_limiter, client_ip(request))
     await auth_service.verify_email(data.token)
     return {"verified": True}
 
@@ -201,12 +217,14 @@ async def forgot_password(data: EmailIn, request: Request, settings: Settings = 
 
 
 @router.post("/reset-password")
-async def reset_password(data: ResetIn):
+async def reset_password(data: ResetIn, request: Request):
+    await _limit(_token_limiter, client_ip(request))
     await auth_service.reset_password(data.token, data.password)
     return {"reset": True}
 
 
 @router.post("/change-password")
 async def change_password(data: ChangePasswordIn, user: CurrentUser = Depends(current_user)):
+    await _limit(_change_password_limiter, user.id)
     await auth_service.change_password(user.id, current_password=data.currentPassword, new_password=data.newPassword)
     return {"changed": True}
