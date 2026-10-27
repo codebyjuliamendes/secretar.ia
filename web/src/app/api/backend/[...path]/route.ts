@@ -74,7 +74,7 @@ async function forward(req: NextRequest, path: string, accessToken: string | und
     headers.set("x-real-ip", ip);
   }
   if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
-  const url = `${API_URL}/api/${path}${req.nextUrl.search}`;
+  const url = `${API_URL}/api/${path.split("/").map(encodeURIComponent).join("/")}${req.nextUrl.search}`;
   const init: RequestInit = { method: req.method, headers, cache: "no-store", redirect: "manual" };
   if (body && body.byteLength > 0 && req.method !== "GET" && req.method !== "HEAD") init.body = body;
   return fetch(url, init);
@@ -86,6 +86,11 @@ function errorResponse(status: number, code: string, message: string) {
 
 async function handle(req: NextRequest, ctx: Ctx) {
   const { path: segments } = await ctx.params;
+  // Segmentos chegam decodificados: "%2e%2e" vira ".." e "%2f" vira "/". Sem esta checagem, um caminho como
+  // clinic/../webhooks/... passaria pelo bloqueio abaixo e seria normalizado pelo fetch para outra rota.
+  if (segments.some((s) => s === "." || s === ".." || s.includes("/") || s.includes("\\"))) {
+    return errorResponse(400, "invalid_path", "Caminho inválido.");
+  }
   const path = segments.join("/");
   if (path.startsWith("webhooks/") || path.startsWith("internal/") || path === "integrations/google/notify") {
     return errorResponse(404, "not_found", "Rota indisponível.");
@@ -157,7 +162,11 @@ async function handle(req: NextRequest, ctx: Ctx) {
   } else {
     const buf = await upstream.arrayBuffer();
     res = new NextResponse(buf, { status: upstream.status, headers: { "content-type": contentType || "application/json" } });
+    // Downloads (planilhas CSV) precisam do nome do arquivo que o backend definiu.
+    const disposition = upstream.headers.get("content-disposition");
+    if (disposition) res.headers.set("content-disposition", disposition);
   }
+  res.headers.set("cache-control", "no-store");
   const rid = upstream.headers.get("x-request-id");
   if (rid) res.headers.set("x-request-id", rid);
   if (renewed) setSessionCookies(res, renewed);
