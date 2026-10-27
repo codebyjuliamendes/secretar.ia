@@ -24,7 +24,7 @@ export default function SettingsPage() {
         <Skeleton className="h-96" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="space-y-4 lg:col-span-2">
+          <div className="min-w-0 space-y-4 lg:col-span-2">
             <AssistantForm settings={data} canManage={canManage} onSaved={async () => { await Promise.all([refetch(), reload()]); }} />
             <ServicesCard canManage={canManage} />
             <ProfessionalsCard canManage={canManage} />
@@ -34,7 +34,7 @@ export default function SettingsPage() {
             <EngagementCard settings={data} canManage={canManage} onSaved={refetch} />
             <QuestionsCard canManage={canManage} />
           </div>
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <WhatsAppCard canManage={canManage} />
             <GoogleCalendarCard canManage={canManage} />
             <Card title="Como a IA usa estas informações">

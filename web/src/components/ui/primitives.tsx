@@ -136,7 +136,7 @@ export function Field({
           {error}
         </p>
       ) : hint ? (
-        <p className="text-xs text-muted">{hint}</p>
+        <p className="text-xs text-muted [overflow-wrap:anywhere]">{hint}</p>
       ) : null}
     </div>
   );
