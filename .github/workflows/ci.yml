@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -59,6 +62,10 @@ jobs:
             --exit-code
       - name: Testes (unitários + integração)
         run: uv run pytest -q
+      - name: Auditoria de dependências (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project > /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt --disable-pip --no-deps
       - name: Fail-fast de configuração em produção
         run: |
           if APP_ENV=production JWT_SECRET= WHATSAPP_APP_SECRET= CRON_SECRET= \
@@ -83,28 +90,63 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
+      - name: Auditoria de dependências de produção
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run build
         env:
           API_URL: http://localhost:8000
 
   docker:
-    name: Imagem Docker do backend
+    name: Imagens Docker (build + smoke test)
     runs-on: ubuntu-latest
-    needs: [backend]
+    needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build backend (sem push)
+      - name: Build backend
         uses: docker/build-push-action@v6
         with:
           context: backend
           push: false
+          load: true
+          tags: secretaria-backend:ci
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-      - name: Build frontend (sem push)
+      - name: Build frontend
         uses: docker/build-push-action@v6
         with:
           context: web
           push: false
+          load: true
+          tags: secretaria-web:ci
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+      - name: Imagens rodam como usuário não-root
+        run: |
+          test "$(docker image inspect -f '{{.Config.User}}' secretaria-backend:ci)" = "appuser"
+          test "$(docker image inspect -f '{{.Config.User}}' secretaria-web:ci)" = "app"
+      - name: Smoke test (banco + API + painel)
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=secretaria -p 5432:5432 pgvector/pgvector:pg16
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres -d secretaria && break; sleep 2; done
+          # Migrations aplicadas pelo próprio CMD da imagem (RUN_MIGRATIONS_ON_START=true por padrão).
+          docker run -d --name api --network host \
+            -e APP_ENV=development -e PORT=8000 -e RUN_BACKGROUND_JOBS=false \
+            -e DATABASE_URL="postgresql://postgres:postgres@localhost:5432/secretaria?schema=public" \
+            secretaria-backend:ci
+          docker run -d --name web --network host -e PORT=4000 -e API_URL=http://localhost:8000 secretaria-web:ci
+          for i in $(seq 1 60); do curl -fsS http://localhost:8000/ready && break; sleep 3; done
+          curl -fsS http://localhost:8000/health
+          curl -fsS http://localhost:8000/ready | grep -q '"database":"ok"'
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://localhost:4000/ && break; sleep 2; done
+          curl -fsS http://localhost:4000/api/backend/public/config | grep -q '"plans"'
+          curl -fsSI http://localhost:4000/login | grep -qi 'content-security-policy'
+          # Webhooks e cron nunca passam pelo BFF.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:4000/api/backend/webhooks/whatsapp)" = "404"
+      - name: Logs dos containers
+        if: failure()
+        run: |
+          docker logs api || true
+          docker logs web || true
+          docker logs pg | tail -50 || true
