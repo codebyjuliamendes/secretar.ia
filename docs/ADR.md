@@ -396,7 +396,7 @@ testado para subir o sistema.
    páginas por `/api/public/config`. Vazios, a linha some, em vez de mostrar dado inventado.
 3. **Consentimento registrado.** Cadastro exige aceitar os Termos e a Política; a página pública de agendamento
    avisa, antes do botão, que os dados vão para o negócio, com link para a política.
-4. **Exclusão pedida pelo titular.** Quem escreve "apague meus dados" (ou cita a LGPD) tem o pedido reconhecido
+4. **Exclusão pedida pelo titular.** Quem escreve "apague meus dados" (ou "excluir meu cadastro"; ver ADR-022) tem o pedido reconhecido
    sem gastar IA: a campanha para na hora, o negócio recebe um aviso com o prazo de 15 dias e a instrução de usar
    o botão Remover em Contatos, que apaga cadastro, conversas e histórico. Quem decide é o controlador; nós só
    garantimos que o pedido chegue.

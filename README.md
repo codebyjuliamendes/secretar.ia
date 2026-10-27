@@ -201,7 +201,15 @@ exclusão definitiva pelo super admin.
 - Modelo: `User` → `Membership(role)` → `Tenant` → dados. Papéis por clínica: `OWNER`, `MANAGER`, `STAFF`;
   papel de plataforma `SUPER_ADMIN` (não é membro implícito de nenhuma clínica).
 - O tenant vem **sempre da URL** (`/api/clinic/{tenantId}/...`) e é validado contra a membership do usuário.
-  Sem membership → 404 (não revela existência). Permissões por papel em `app/domain/roles.py`.
+  Sem membership → 404 (não revela existência). Permissões por papel em `app/domain/roles.py`:
+
+  | Ação | STAFF | MANAGER | OWNER |
+  | --- | :-: | :-: | :-: |
+  | Agenda, contatos, inbox (ver e operar) | sim | sim | sim |
+  | Ver configurações | sim | sim | sim |
+  | Alterar assistente, serviços, horários, integrações | | sim | sim |
+  | Equipe (ver), plano (ver), auditoria, exportar planilhas | | sim | sim |
+  | Equipe (convidar/remover), assinatura, encerrar conta | | | sim |
 - Access token JWT de 15 min; refresh token opaco (hash SHA-256 no banco) de 30 dias com **rotação** e
   detecção de reuso (revoga a família). Senhas com bcrypt; política mínima; timing constante no login.
 - Frontend nunca vê tokens: BFF em `/api/backend/*` guarda-os em cookies `httpOnly`; `API_URL` não é público.
