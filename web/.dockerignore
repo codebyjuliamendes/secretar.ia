@@ -1,0 +1,11 @@
+# Contexto do build da imagem: nada de dependências locais, build anterior nem segredos.
+node_modules
+.next
+out
+coverage
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.DS_Store
+.git

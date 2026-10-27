@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -31,6 +32,67 @@ async def ensure_super_admin(email: str) -> None:
     if user and str(user.platformRole) != "SUPER_ADMIN":
         await db.user.update(where={"id": user.id}, data={"platformRole": "SUPER_ADMIN"})
         log.info("super_admin_promoted", email=email)
+
+
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+
+def _safe_request_id(value: str | None) -> str:
+    """Reaproveita o id do chamador (BFF, proxy) só se for curto e sem caracteres de controle; senão gera um."""
+    if value and _REQUEST_ID_RE.match(value):
+        return value
+    return uuid.uuid4().hex[:16]
+
+
+class BodySizeLimitMiddleware:
+    """ASGI puro: corpo sem Content-Length (chunked) é lido aqui, com teto, antes de chegar à aplicação.
+
+    Com Content-Length o middleware HTTP abaixo recusa antes de ler qualquer byte; sem ele, nada impediria um POST
+    infinito de ocupar memória. O corpo aceito é reentregue intacto à aplicação."""
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or any(k == b"content-length" for k, _ in scope.get("headers", [])):
+            await self.app(scope, receive, send)
+            return
+        chunks: list[bytes] = []
+        size = 0
+        more = True
+        while more:
+            message = await receive()
+            if message["type"] != "http.request":  # desconexão no meio do envio
+                await self.app(scope, _replay([], message, receive), send)
+                return
+            body = message.get("body", b"")
+            size += len(body)
+            if size > self.max_bytes:
+                response = JSONResponse(
+                    status_code=413,
+                    content={"error": {"code": "payload_too_large", "message": "Corpo da requisição grande demais."}},
+                )
+                await response(scope, receive, send)
+                return
+            chunks.append(body)
+            more = message.get("more_body", False)
+        await self.app(scope, _replay(chunks, None, receive), send)
+
+
+def _replay(chunks: list[bytes], pending: dict | None, receive):
+    delivered = False
+
+    async def replay_receive():
+        nonlocal delivered
+        if not delivered:
+            delivered = True
+            if pending is not None:
+                return pending
+            return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
+        return await receive()
+
+    return replay_receive
 
 
 def create_app(*, run_background: bool = True) -> FastAPI:
@@ -79,7 +141,7 @@ def create_app(*, run_background: bool = True) -> FastAPI:
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
-        rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        rid = _safe_request_id(request.headers.get("x-request-id"))
         token = request_id_var.set(rid)
         started = time.perf_counter()
         try:
@@ -106,9 +168,15 @@ def create_app(*, run_background: bool = True) -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
+        if settings.is_production_like:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
     register_exception_handlers(app)
+    # Por fora de tudo: conta os bytes de corpos sem Content-Length (chunked), que o teto acima não enxerga.
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
     app.include_router(internal.router)
     app.include_router(internal.cron_router, prefix="/api")

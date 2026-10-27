@@ -579,33 +579,39 @@ async def resolve_questions(
     return {"resolved": await engagement.resolve_unanswered(ctx.tenant_id, data.ids)}
 
 
-@router.get("/export/patients.csv")
-async def export_patients(ctx: TenantContext = Depends(require_permission(Permission.PATIENTS_VIEW))):
-    """Planilha de contatos (CSV; abre no Excel). Portabilidade dos dados da conta."""
+async def _csv_download(ctx: TenantContext, request: Request, kind: str, body: str, filename: str):
     from fastapi.responses import Response
 
-    from app.services import exports
-
-    body = await exports.patients_csv(ctx.tenant)
+    await audit.record(
+        action=f"export.{kind}",
+        resource_type="export",
+        tenant_id=ctx.tenant_id,
+        actor_user_id=ctx.user.id,
+        ip=client_ip(request),
+    )
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="contatos.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/export/patients.csv")
+async def export_patients(request: Request, ctx: TenantContext = Depends(require_permission(Permission.DATA_EXPORT))):
+    """Planilha de contatos (CSV; abre no Excel). Portabilidade dos dados da conta; cada download é auditado."""
+    from app.services import exports
+
+    return await _csv_download(ctx, request, "patients", await exports.patients_csv(ctx.tenant), "contatos.csv")
 
 
 @router.get("/export/appointments.csv")
-async def export_appointments(ctx: TenantContext = Depends(require_permission(Permission.APPOINTMENTS_VIEW))):
-    from fastapi.responses import Response
-
+async def export_appointments(
+    request: Request, ctx: TenantContext = Depends(require_permission(Permission.DATA_EXPORT))
+):
     from app.services import exports
 
     body = await exports.appointments_csv(ctx.tenant)
-    return Response(
-        content=body,
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="agendamentos.csv"'},
-    )
+    return await _csv_download(ctx, request, "appointments", body, "agendamentos.csv")
 
 
 class ProfessionalIn(BaseModel):

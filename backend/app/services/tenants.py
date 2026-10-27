@@ -292,6 +292,10 @@ async def admin_delete_tenant(tenant_id: str, *, confirm: str, actor_user_id: st
         ip=ip,
     )
     await db.tenant.delete(where={"id": tenant_id})  # cascade limpa pacientes, conversas, agenda e anexos
+    # A fila não tem FK para o tenant: mensagens e e-mails ainda pendentes levariam dados da conta apagada.
+    await db.execute_raw(
+        """DELETE FROM "Job" WHERE status <> 'RUNNING'::"JobStatus" AND payload->>'tenantId' = $1""", tenant_id
+    )
     orphans = 0
     for uid in user_ids:
         if await db.membership.count(where={"userId": uid}) == 0:

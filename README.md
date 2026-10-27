@@ -16,6 +16,7 @@ inbox de transbordo humano e campanha de retorno. SaaS multi-tenant com isolamen
 - [Integrações](#integrações)
 - [Deploy](#deploy)
 - [Troubleshooting](#troubleshooting)
+- [Limitações conhecidas](#limitações-conhecidas)
 - [Decisões arquiteturais](docs/ADR.md)
 
 ## Arquitetura
@@ -89,7 +90,7 @@ docker-compose.yml postgres (+ backend com --profile full)
 
 ## Rodando localmente
 
-Pré-requisitos: Docker, [uv](https://docs.astral.sh/uv/), Node 20+.
+Pré-requisitos: Docker, [uv](https://docs.astral.sh/uv/), Node 22+.
 
 ```bash
 # 1. Banco
@@ -165,8 +166,13 @@ PYTHONUTF8=1 uv run pytest -q          # unitários + integração (usa secretar
 uv run ruff check . && uv run ruff format --check .
 
 cd web
-npm run lint && npm run typecheck && npm run build
+npm run lint && npm run typecheck && npm test && npm run build   # ou: npm run check
 ```
+
+O CI (`.github/workflows/ci.yml`) roda tudo isso, verifica que schema e migrations estão em sincronia, audita as
+dependências (`pip-audit` e `npm audit --omit=dev`), constrói as duas imagens Docker e sobe banco + API + painel
+para um smoke test (`/health`, `/ready`, BFF e cabeçalho CSP). Nenhum teste chama Gemini, Evolution, Stripe,
+Google ou SMTP de verdade: os providers de teste/console e `httpx.MockTransport` substituem as integrações.
 
 A suíte de integração **trunca as tabelas** e por isso só roda em um banco cujo nome contenha `_test`
 (`ALLOW_NON_TEST_DB=1` para forçar). Cobre: cadastro/login/refresh rotativo/logout, verificação de e-mail e
@@ -195,7 +201,15 @@ exclusão definitiva pelo super admin.
 - Modelo: `User` → `Membership(role)` → `Tenant` → dados. Papéis por clínica: `OWNER`, `MANAGER`, `STAFF`;
   papel de plataforma `SUPER_ADMIN` (não é membro implícito de nenhuma clínica).
 - O tenant vem **sempre da URL** (`/api/clinic/{tenantId}/...`) e é validado contra a membership do usuário.
-  Sem membership → 404 (não revela existência). Permissões por papel em `app/domain/roles.py`.
+  Sem membership → 404 (não revela existência). Permissões por papel em `app/domain/roles.py`:
+
+  | Ação | STAFF | MANAGER | OWNER |
+  | --- | :-: | :-: | :-: |
+  | Agenda, contatos, inbox (ver e operar) | sim | sim | sim |
+  | Ver configurações | sim | sim | sim |
+  | Alterar assistente, serviços, horários, integrações | | sim | sim |
+  | Equipe (ver), plano (ver), auditoria, exportar planilhas | | sim | sim |
+  | Equipe (convidar/remover), assinatura, encerrar conta | | | sim |
 - Access token JWT de 15 min; refresh token opaco (hash SHA-256 no banco) de 30 dias com **rotação** e
   detecção de reuso (revoga a família). Senhas com bcrypt; política mínima; timing constante no login.
 - Frontend nunca vê tokens: BFF em `/api/backend/*` guarda-os em cookies `httpOnly`; `API_URL` não é público.
@@ -203,8 +217,18 @@ exclusão definitiva pelo super admin.
   Stripe exige `Stripe-Signature` com tolerância de 5 min. Todos idempotentes.
 - Erros nunca expõem stack trace; envelope `{error: {code, message, request_id}}`. Logs JSON com request id,
   tenant e usuário; dados sensíveis são mascarados.
-- Rate limit em login/cadastro/recuperação de senha (memória; troque por Redis com múltiplas réplicas).
-- Auditoria (`AuditLog`) de ações relevantes: quem, o quê, recurso, quando, IP.
+- Rate limit persistido no Postgres (vale entre réplicas, ADR-008) em login (por IP, por conta e por par),
+  cadastro, recuperação e redefinição de senha, verificação de e-mail, convites, troca de senha e na página
+  pública de agendamento.
+- Teto de corpo de requisição (32 MB) também para uploads `chunked`, sem `Content-Length`.
+- Auditoria (`AuditLog`) de ações relevantes: quem, o quê, recurso, quando, IP (inclui cada exportação de planilha).
+- Exportação em massa (planilha de contatos/agenda) só para `OWNER` e `MANAGER` (permissão `data:export`); a
+  recepção (`STAFF`) consulta e edita fichas, mas não baixa a base inteira. Células que começam com `=`, `+`, `-`
+  ou `@` são neutralizadas (o nome do perfil do WhatsApp é escolhido pelo próprio contato: CSV injection).
+- Exclusão de um contato (pedido do titular, LGPD) remove, numa transação, a ficha, as conversas, as perguntas sem
+  resposta, os avisos da inbox e as mensagens ainda na fila daquele número; agendamentos, lista de espera e envios
+  de campanha caem em cascata. A auditoria guarda só o telefone mascarado.
+- Chave do Gemini enviada no cabeçalho `x-goog-api-key`, nunca na URL.
 - Cabeçalhos de segurança no Next (CSP, `X-Frame-Options`, etc.) e no FastAPI.
 
 ## Integrações
@@ -237,13 +261,15 @@ Backend (qualquer host de containers: Railway, Fly.io, Render, ECS):
    usa `FOR UPDATE SKIP LOCKED` e a manutenção diária é idempotente por dia.
 3. Crie o primeiro admin: `python -m app.cli create-superadmin ...` (ou `SUPER_ADMIN_EMAIL`).
 4. Aponte o webhook do Stripe para `/api/webhooks/billing` e configure `STRIPE_WEBHOOK_SECRET`.
-   Para checkout online, crie dois preços recorrentes no Stripe (Básico e Pro), configure `STRIPE_SECRET_KEY`,
-   `STRIPE_PRICE_BASIC` e `STRIPE_PRICE_PRO`, e habilite o Customer Portal no dashboard do Stripe.
+   Para checkout online, crie três preços recorrentes no Stripe (Essencial, Profissional e Premium), configure
+   `STRIPE_SECRET_KEY`, `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PRO` e `STRIPE_PRICE_PREMIUM`, e habilite o Customer
+   Portal no dashboard do Stripe.
 5. Para o Google Calendar, crie um cliente OAuth (tipo Web) no Google Cloud com o redirect URI
    `{PUBLIC_API_URL}/api/integrations/google/callback`, habilite a Calendar API e defina `GOOGLE_CLIENT_ID`,
    `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY`.
-5. Opcional: cron externo chamando `POST /api/internal/cron/daily` com `Authorization: Bearer $CRON_SECRET`
-   (o agendador interno já roda às 12:00 UTC).
+6. Opcional: cron externo chamando `POST /api/internal/cron/daily` com `Authorization: Bearer $CRON_SECRET`
+   (o agendador interno roda a partir das 12:00 UTC e, se o processo estava fora do ar nesse horário, recupera a
+   rotina do dia assim que volta).
 
 Frontend: imagem `web/Dockerfile` (Next standalone, respeita `PORT`) ou Vercel/Node (`npm run build && npm start`).
 Defina `API_URL` (URL pública do backend) e `COOKIE_SECURE=true`; adicione a URL do frontend em `CORS_ORIGINS` e
@@ -264,6 +290,20 @@ Ambientes: use bancos e segredos distintos para `development`, `staging` e `prod
 | Jobs em `FAILED` | integração recusou (permanente) | Admin → Fila de tarefas → detalhe do erro → reprocessar |
 | `prisma generate` com `PermissionError`/mojibake no Windows | caminho com acento | `PYTHONUTF8=1` |
 | 401 em loop no frontend | cookies bloqueados ou `API_URL` errado | confira `.env.local` e `COOKIE_SECURE` |
+
+## Limitações conhecidas
+
+- Conversas (`Message`) não têm prazo de retenção automático: são o histórico do negócio e só saem quando o
+  contato ou a conta são excluídos (é o que a Política de Privacidade descreve).
+- O log técnico da IA (`ExecutionLog`) tem o texto apagado pela rotina diária após 30 dias (contagens, intenção,
+  tokens e tempo ficam para o painel). Como ele não guarda o telefone, a exclusão de um contato não alcança as
+  entradas dos últimos 30 dias antes desse prazo.
+- O webhook normalizado (`/api/webhooks/whatsapp`) usa um segredo HMAC único da plataforma: quem tem o segredo
+  envia para qualquer clínica. É pensado para integradores próprios; a Evolution API usa token na URL + instância.
+- Rate limit por IP depende de `X-Real-IP`/`X-Forwarded-For` confiáveis (`TRUST_PROXY_HEADERS`); com o backend
+  exposto diretamente, desligue a opção.
+- A pasta `web/` não tem testes de componente; os fluxos do painel são verificados manualmente/Playwright e os
+  módulos puros (`tz`, BFF, redirect pós-login) por `npm test`.
 
 ## Licença
 

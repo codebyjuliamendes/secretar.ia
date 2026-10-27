@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import UTC
 from zoneinfo import ZoneInfo
 
@@ -15,10 +16,28 @@ from app.db import db
 BOM = "﻿"
 
 
+# Excel/LibreOffice executam células que começam com estes caracteres como fórmula. Nome e observações vêm de
+# fora (o nome do perfil do WhatsApp é escolhido pelo próprio contato), então "=HYPERLINK(...)" ou "=cmd|..."
+# virariam fórmula ao abrir a planilha (CSV injection). Prefixar com apóstrofo faz a célula ser lida como texto.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
+_PLAIN_NUMBER = re.compile(r"^[+-]?\d[\d .,/:-]*$")  # telefone "+5581...", datas e valores: sem fórmula possível
+
+
+def safe_cell(value: str) -> str:
+    text = str(value or "")
+    if text.startswith(_FORMULA_PREFIXES) and not _PLAIN_NUMBER.match(text):
+        return "'" + text
+    return text
+
+
 def _csv(rows: list[list[str]]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";", lineterminator="\r\n")
-    writer.writerows(rows)
+    writer.writerow(rows[0])
+    for row in rows[1:]:
+        writer.writerow([safe_cell(c) for c in row])
     return BOM + buf.getvalue()
 
 

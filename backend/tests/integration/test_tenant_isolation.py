@@ -15,6 +15,8 @@ READ_PATHS = [
     "/audit",
     "/billing",
     "/whatsapp/status",
+    "/export/patients.csv",
+    "/export/appointments.csv",
 ]
 
 

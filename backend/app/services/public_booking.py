@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import secrets
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -126,6 +126,9 @@ async def create_booking(
 ) -> dict:
     tenant = await _tenant_by_slug(slug)
     tz = ZoneInfo(tenant.timezone or "America/Sao_Paulo")
+    if start > datetime.now(UTC) + timedelta(days=MAX_DAYS + 1):
+        # A página só oferece MAX_DAYS dias; um POST direto não reserva a agenda de daqui a anos.
+        raise AppError("Escolha um horário dentro das próximas semanas.", code="slot_too_far")
     try:
         phone_n = normalize_phone(phone)
     except ValueError as exc:
@@ -149,7 +152,12 @@ async def create_booking(
         count = await db.patient.count(where={"tenantId": tenant.id})
         if not within_limit(count, limits_for(str(tenant.plan)).max_patients):
             raise ConflictError("Agenda cheia no momento. Fale com a equipe pelo WhatsApp.", code="patient_limit")
-        patient = await db.patient.create(data={"tenantId": tenant.id, "phone": phone_n, "name": name.strip()[:120]})
+        try:
+            patient = await db.patient.create(
+                data={"tenantId": tenant.id, "phone": phone_n, "name": name.strip()[:120]}
+            )
+        except UniqueViolationError:  # dois cliques simultâneos do mesmo número
+            patient = await db.patient.find_unique(where={"tenantId_phone": {"tenantId": tenant.id, "phone": phone_n}})
     elif not patient.name and name.strip():
         patient = await db.patient.update(where={"id": patient.id}, data={"name": name.strip()[:120]})
 

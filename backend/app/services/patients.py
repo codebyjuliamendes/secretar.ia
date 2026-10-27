@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.db import db
-from app.domain.phones import normalize_phone
+from app.domain.phones import mask_phone, normalize_phone
 from app.domain.plans import limits_for, within_limit
 from app.errors import AppError, ConflictError, NotFoundError, QuotaExceededError
 from app.services import audit
@@ -175,13 +175,39 @@ async def delete_patient(tenant_id: str, patient_id: str, *, actor_user_id: str,
             code="patient_has_upcoming",
             details={"upcoming": upcoming},
         )
-    await db.patient.delete(where={"id": p.id})
+    removed = await erase_patient_data(tenant_id, p)
     await audit.record(
         action="patient.deleted",
         resource_type="patient",
         resource_id=p.id,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
-        metadata={"phone": p.phone},
+        # A auditoria sobrevive à exclusão: guarda só o telefone mascarado, nunca o dado do titular.
+        metadata={"phone": mask_phone(p.phone), "removed": removed},
         ip=ip,
     )
+
+
+async def erase_patient_data(tenant_id: str, patient) -> dict[str, int]:
+    """Exclusão do titular (LGPD art. 18): ficha, conversas, perguntas sem resposta, avisos da inbox e mensagens
+    ainda na fila. As conversas são ligadas pelo telefone (não por FK), então precisam ser apagadas à parte;
+    agendamentos, lista de espera e envios de campanha caem em cascata com o paciente."""
+    phone = patient.phone
+    async with db.tx() as tx:
+        messages = await tx.message.delete_many(where={"tenantId": tenant_id, "phone": phone})
+        questions = await tx.unansweredquestion.delete_many(where={"tenantId": tenant_id, "phone": phone})
+        notifications = await tx.notification.delete_many(where={"tenantId": tenant_id, "phone": phone})
+        # Payload da fila carrega telefone e texto; um job RUNNING termina sozinho e some na limpeza diária.
+        jobs = await tx.execute_raw(
+            """DELETE FROM "Job" WHERE status <> 'RUNNING'::"JobStatus"
+               AND payload->>'tenantId' = $1 AND payload->>'phone' = $2""",
+            tenant_id,
+            phone,
+        )
+        await tx.patient.delete(where={"id": patient.id})
+    return {
+        "messages": int(messages),
+        "unansweredQuestions": int(questions),
+        "notifications": int(notifications),
+        "jobs": int(jobs),
+    }

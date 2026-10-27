@@ -6,18 +6,8 @@ import { Suspense, useState, type FormEvent } from "react";
 import { api, errorMessage } from "@/lib/api";
 import type { Me } from "@/lib/types";
 import { Alert, Button, Field, Input } from "@/components/ui/primitives";
+import { safeNext } from "@/lib/safe-next";
 
-function safeNext(value: string | null) {
-  // Só caminhos da própria origem. `new URL` resolve truques como "/\\evil.com" (a barra invertida vira "/").
-  if (!value || !value.startsWith("/")) return "/app";
-  try {
-    const url = new URL(value, window.location.origin);
-    if (url.origin !== window.location.origin) return "/app";
-    return url.pathname + url.search;
-  } catch {
-    return "/app";
-  }
-}
 
 function LoginForm() {
   const router = useRouter();
@@ -36,7 +26,7 @@ function LoginForm() {
     try {
       const data = await api.post<{ user: Me }>("auth/login", { email, password });
       const next = params.get("next");
-      if (next) router.replace(safeNext(next));
+      if (next) router.replace(safeNext(next, window.location.origin));
       else if (data.user.memberships.length === 0 && data.user.platformRole === "SUPER_ADMIN") router.replace("/admin");
       else router.replace("/app");
     } catch (err) {

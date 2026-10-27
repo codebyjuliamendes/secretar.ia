@@ -56,6 +56,8 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     if (res.status === 401) {
       // Sessão expirada/revogada: força novo login preservando o destino.
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        // Recarga completa de propósito: descarta o estado em memória da sessão que acabou.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}&expired=1`);
       }
     }

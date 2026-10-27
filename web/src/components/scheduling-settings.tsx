@@ -85,14 +85,16 @@ function AvailabilityForm({ initial, canManage, onSaved }: { initial: { rules: A
       )}
       <div className="space-y-2">
         {days.map((d, wd) => (
-          <div key={wd} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 text-sm">
-            <label className="flex items-center gap-3">
+          <div key={wd} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm">
+            <label className="flex min-w-[8rem] items-center gap-3">
               <Switch checked={d.enabled} onChange={(v) => setDays(days.map((x, i) => (i === wd ? { ...x, enabled: v } : x)))} label={`Atende ${DAYS[wd]}`} disabled={!canManage} />
               <span className={d.enabled ? "" : "text-muted"}>{DAYS[wd]}</span>
             </label>
+            <div className="flex items-center gap-2">
             <Input type="time" aria-label={`Início ${DAYS[wd]}`} value={d.start} disabled={!d.enabled} onChange={(e) => setDays(days.map((x, i) => (i === wd ? { ...x, start: e.target.value } : x)))} className="w-28" />
             <span className="text-muted">até</span>
             <Input type="time" aria-label={`Fim ${DAYS[wd]}`} value={d.end} disabled={!d.enabled} onChange={(e) => setDays(days.map((x, i) => (i === wd ? { ...x, end: e.target.value } : x)))} className="w-28" />
+            </div>
           </div>
         ))}
       </div>
